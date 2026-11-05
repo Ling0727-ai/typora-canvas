@@ -1,0 +1,18 @@
+:host { color-scheme: light; font: 14px "Segoe UI", "Microsoft YaHei", sans-serif; color: #243044; }
+* { box-sizing: border-box; }
+.reader { height: 100%; display: flex; flex-direction: column; background: #fafbfd; }
+header { display: flex; align-items: center; gap: 8px; padding: 12px 18px; border-bottom: 1px solid #dce2eb; flex-wrap: wrap; }
+strong { font-size: 16px; }
+.title { flex: 1; min-width: 30px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #68768a; }
+input, button { font: inherit; border: 1px solid #c8d2e0; border-radius: 6px; background: white; color: #243044; padding: 7px 10px; }
+input { width: min(220px, 40vw); }
+button { cursor: pointer; }
+button:hover { background: #eaf0f9; }
+:focus-visible { outline: 2px solid #4c80d1; outline-offset: 2px; }
+.matches { font-size: 12px; color: #68768a; }
+.notice { padding: 7px 18px; background: #edf3fb; color: #52647d; font-size: 12px; }
+main { position: relative; flex: 1; min-height: 0; overflow: hidden; }
+.scroll { position: absolute; inset: 0; overflow: auto; overscroll-behavior: contain; overflow-anchor: none; }
+.spacer { width: 1px; pointer-events: none; }
+canvas { position: absolute; inset: 0; pointer-events: none; }
+footer { padding: 6px 18px; border-top: 1px solid #dce2eb; color: #68768a; font: 12px Consolas, monospace; }
