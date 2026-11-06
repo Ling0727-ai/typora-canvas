@@ -227,28 +227,54 @@ export function mountCanvasEditor({ markdown = '', parent = document.body, embed
   function rebuild() {
     structureRebuilds++;
     rows = classifyLines(model.doc, { customCallouts: calloutTheme.customEnabled }); layouts.clear();
+    for (const entry of assets.values()) entry.dependents.clear();
     refreshTableSelection(false);
     openCallouts = effectiveOpenCallouts(activeLines());
     heights = new HeightIndex(rows.map((_, i) => estimate(i)));
     spacer.style.height = `${Math.max(height, heights.total + (containerStyle.paddingBottom || 48))}px`;
     previousRaw.clear();
   }
-  function asset(type, source, display, color = drawColor) {
-    const key = `${type}:${display}:${color}:${source}`;
-    if (assets.has(key)) { const value = assets.get(key); assets.delete(key); assets.set(key, value); return value; }
-    if (assets.size >= 48) {
-      const [oldKey, old] = assets.entries().next().value;
-      if (old.image) { assetBytes -= old.bytes; old.image.src = ''; }
-      assets.delete(oldKey);
+  function invalidateAsset(entry) {
+    // Keep unrelated layout and decoded formulas intact. schedule() coalesces
+    // multiple completions into the next animation frame.
+    for (const key of layouts.map.keys()) if (entry.dependents.has(Number(key.split(':', 1)[0]))) layouts.delete(key);
+    schedule();
+  }
+  function releaseAsset(key, entry) {
+    assets.delete(key); entry.controller.abort();
+    if (entry.image) { assetBytes -= entry.bytes; entry.image.src = ''; delete entry.image; }
+    invalidateAsset(entry);
+  }
+  function reserveAsset(bytes = 0, extra = 0, except = null) {
+    const first = heights.find(Math.max(0, scroll.scrollTop - 300)), last = heights.find(scroll.scrollTop + height + 300);
+    for (const [key, entry] of assets) {
+      if (assets.size + extra <= 256 && assetBytes + bytes <= 32 * 1024 * 1024) return true;
+      if (entry === except || [...entry.dependents].some(i => i >= first && i <= last)) continue;
+      releaseAsset(key, entry);
     }
-    const entry = { status: 'pending' }, epoch = assetEpoch; assets.set(key, entry);
+    return assets.size + extra <= 256 && assetBytes + bytes <= 32 * 1024 * 1024;
+  }
+  function asset(type, source, display, color = drawColor, dependentLine = null) {
+    const key = `${type}:${display}:${color}:${source}`;
+    if (assets.has(key)) {
+      const value = assets.get(key); assets.delete(key); assets.set(key, value);
+      if (dependentLine !== null) value.dependents.add(dependentLine);
+      return value;
+    }
+    // A full visible working set falls back to source. Evicting another visible
+    // formula here would create an endless decode/relayout/resubmit cycle.
+    if (!reserveAsset(0, 1)) return null;
+    const entry = { status: 'pending', controller: new AbortController(), dependents: new Set() }, epoch = assetEpoch;
+    if (dependentLine !== null) entry.dependents.add(dependentLine);
+    assets.set(key, entry);
+    const current = () => !disposed && epoch === assetEpoch && assets.get(key) === entry;
     (async () => {
       try {
         let url;
         if (type === 'math') {
           if (source.length > 20000) throw new Error('公式过长');
-          const result = await formulaEngine.render(source, { size: fontSize, color, display });
-          if (disposed || epoch !== assetEpoch) return;
+          const result = await formulaEngine.render(source, { size: fontSize, color, display }, { signal: entry.controller.signal });
+          if (!current()) return;
           url = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(result.svg)}`;
           entry.width = result.width; entry.height = result.height;
           entry.ascent = result.ascent; entry.depth = result.depth;
@@ -258,30 +284,24 @@ export function mountCanvasEditor({ markdown = '', parent = document.body, embed
         }
         const image = new Image(); image.decoding = 'async';
         await new Promise((resolve, reject) => { image.onload = resolve; image.onerror = () => reject(new Error('图片解码失败')); image.src = url; });
-        if (disposed || epoch !== assetEpoch) { image.src = ''; return; }
+        if (!current()) { image.src = ''; return; }
+        const bytes = type === 'icon' ? (24 * dpr) ** 2 * 4 : image.naturalWidth * image.naturalHeight * 4;
+        if (!reserveAsset(bytes, 0, entry)) { image.src = ''; throw new Error('资源缓存已满'); }
         if (type === 'icon') {
           const icon = document.createElement('canvas'); icon.width = icon.height = 24 * dpr;
           const context = icon.getContext('2d'); context.drawImage(image, 0, 0, icon.width, icon.height);
           context.globalCompositeOperation = 'source-in'; context.fillStyle = color; context.fillRect(0, 0, icon.width, icon.height);
           entry.image = icon; entry.width = entry.height = 24;
         } else { entry.image = image; entry.width ||= image.naturalWidth; entry.height ||= image.naturalHeight; }
-        entry.bytes = type === 'icon' ? entry.image.width * entry.image.height * 4 : image.naturalWidth * image.naturalHeight * 4;
+        entry.bytes = bytes;
         assetBytes += entry.bytes;
         entry.status = 'ready';
-        // Enforce both count and decoded-byte budgets. An oversized single
-        // image is released and remains source text instead of consuming RAM.
-        for (const [oldKey, old] of assets) {
-          if (assets.size <= 48 && assetBytes <= 32 * 1024 * 1024) break;
-          if (old.image) { assetBytes -= old.bytes; old.image.src = ''; delete old.image; }
-          assets.delete(oldKey);
-          if (oldKey === key) { entry.status = 'error'; assets.set(key, entry); break; }
-        }
-        layouts.clear(); schedule();
+        invalidateAsset(entry);
       } catch (error) {
-        if (disposed || epoch !== assetEpoch) return;
+        if (!current()) return;
         entry.status = 'error'; entry.error = String(error);
         errorMessage = `${type === 'math' ? '公式' : '图片'}渲染失败：${error.message}`;
-        console.error('[Typora Canvas] asset rendering failed', error); schedule();
+        console.error('[Typora Canvas] asset rendering failed', error); invalidateAsset(entry);
       }
     })();
     return entry;
@@ -351,7 +371,11 @@ export function mountCanvasEditor({ markdown = '', parent = document.body, embed
         nativeCallout: entry, sliceTop, sliceHeight, documentTop };
       heights.update(i, value.height); layouts.set(key, value); return value;
     }
-    if (!raw && ['math-tail', 'table-separator', 'blank'].includes(rows[i].type)) {
+    const formula = rows[i].type === 'math-tail' ? rows[rows[i].start] : null;
+    // Keep every source line visible until the grouped equation is ready.
+    // Register each tail as a dependent so only this group collapses on success.
+    const hideMathTail = formula && !raw && asset('math', formula.tex, true, drawColor, i)?.image;
+    if (!raw && (hideMathTail || ['table-separator', 'blank'].includes(rows[i].type))) {
       const h = .01 + (i === 0 ? containerStyle.paddingTop || 0 : 0);
       heights.update(i, h); return { height: h, lines: [], top: 0, lineHeight: 29 };
     }
@@ -360,10 +384,10 @@ export function mountCanvasEditor({ markdown = '', parent = document.body, embed
     if (!value) {
       const line = model.doc.line(i + 1);
       const codeTokens = tokensForCode(i);
-      value = layoutSourceLine(ctx, line.text, codeTokens ? { ...rows[i], codeTokens } : rows[i], { width: contentWidth, raw, font,
+      value = layoutSourceLine(ctx, line.text, codeTokens ? { ...rows[i], codeTokens } : rows[i], { width: contentWidth, raw: raw || !!formula, font,
         cursor: model.head - line.from, selection: { from: model.from - line.from, to: model.to - line.from }, calloutTheme,
         typography, codeStyle, size: fontSize,
-        asset: (type, source, display, color) => asset(type, source, display, color || (rows[i].type === 'table' ? rows[i].header ? tableStyle.headerColor : tableStyle.color : drawColor)), measure: (f, text) => {
+        asset: (type, source, display, color) => asset(type, source, display, color || (rows[i].type === 'table' ? rows[i].header ? tableStyle.headerColor : tableStyle.color : drawColor), i), measure: (f, text) => {
           const key = `${f}\0${text}`; let w = measurements.get(key);
           if (w === undefined) { ctx.font = f; w = measurements.set(key, ctx.measureText(text).width); }
           return w;
@@ -552,7 +576,7 @@ export function mountCanvasEditor({ markdown = '', parent = document.body, embed
       if (value.calloutTitle) {
         const title = value.calloutTitle, spec = title.spec;
         if (spec.iconUrl) {
-          const icon = asset('icon', spec.iconUrl, false, spec.color);
+          const icon = asset('icon', spec.iconUrl, false, spec.color, i);
           if (icon.image) ctx.drawImage(icon.image, left + title.x, y + title.y + 3, spec.iconSize, spec.iconSize);
         } else if (spec.iconGlyph) {
           ctx.font = `${spec.iconSize}px ${spec.iconFont || font}`; ctx.fillStyle = spec.color;
@@ -753,9 +777,11 @@ export function mountCanvasEditor({ markdown = '', parent = document.body, embed
       domNodes: root.querySelectorAll('*').length, canvasWidth: canvas.width, canvasHeight: canvas.height,
       paintMs: lastPaintMs, dirty: model.dirty, assets: assets.size, readyAssets: [...assets.values()].filter(a => a.image).length,
       assetBytes, previewFormulas, drawnTables, calloutGroups: rows.calloutGroups.length,
+      formulas: formulaEngine.getStats(),
       hiddenCalloutLines: rows.filter(hiddenCallout).length,
       nativeCallouts: { cached: calloutCache.size, ready: [...calloutCache.values()].filter(e => e.image).length,
-        drawnSlices: drawnNativeCallouts, bytes: calloutBytes, errors: [...calloutCache.values()].filter(e => e.status === 'error').map(e => e.error) },
+        drawnSlices: drawnNativeCallouts, bytes: calloutBytes, errors: [...calloutCache.values()].filter(e => e.status === 'error').map(e => e.error),
+        formulaErrors: [...calloutCache.values()].flatMap(e => e.formulaErrors || []) },
       theme: { color: drawColor, background, font, fontSize },
       tableTheme: tableStyle, typography, codeTheme: codeStyle,
       codeBlocks: rows.codeBlocks.length, highlightedCodeLines: [...codeCache.values()].reduce((n, entry) => n + (entry.lines?.filter(tokens => tokens.length).length || 0), 0),

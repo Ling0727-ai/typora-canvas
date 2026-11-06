@@ -6,6 +6,7 @@ export const editorFont = '"Segoe UI", "Microsoft YaHei", sans-serif';
 // Inactive lines elide common Markdown markers; the active source line is exact.
 // Every visible fragment retains its UTF-16 source range for pointer hit testing.
 export function sourceRuns(text, row, raw, cursor = -1, selection = null) {
+  if (row.type === 'math' || row.type === 'math-tail') return [{ text, from: 0, to: text.length }];
   if (row.type === 'code' || row.type === 'code-fence') {
     if (!row.codeTokens?.length || row.type === 'code-fence') return [{ text, from: 0, to: text.length, code: true }];
     const runs = []; let from = 0;

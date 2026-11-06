@@ -104,13 +104,24 @@ export function createNativeCalloutRenderer({ write, plugin }) {
         const line = Number(block.getAttribute('data-tc-line'));
         block.classList.toggle('callout-folded', folded.includes(line));
       }
+      const formulaErrors = [];
       await Promise.all([...stage.querySelectorAll('[data-tc-math]')].map(async node => {
         const display = node.dataset.display === 'true', style = getComputedStyle(node);
-        const result = await formulas.render(node.dataset.tcMath, { display, size: parseFloat(style.fontSize) || 17, color: style.color });
-        const svg = new DOMParser().parseFromString(result.svg, 'image/svg+xml').documentElement;
-        Object.assign(svg.style, { width: `${result.width}px`, height: `${result.height}px`, verticalAlign: `-${result.depth}px` });
         if (display) Object.assign(node.style, { display: 'block', textAlign: 'center' });
-        node.replaceChildren(doc.importNode(svg, true));
+        try {
+          const result = await formulas.render(node.dataset.tcMath, { display, size: parseFloat(style.fontSize) || 17, color: style.color });
+          const svg = new DOMParser().parseFromString(result.svg, 'image/svg+xml').documentElement;
+          Object.assign(svg.style, { width: `${result.width}px`, height: `${result.height}px`, verticalAlign: `-${result.depth}px` });
+          node.replaceChildren(doc.importNode(svg, true));
+        } catch (error) {
+          // Keep the successful equations and the plugin's decorated block.
+          // A single bad equation must not discard and recapture the Callout.
+          const marker = display ? '$$' : '$';
+          node.textContent = `${marker}${node.dataset.tcMath}${marker}`;
+          node.title = `公式渲染失败：${error.message}`;
+          Object.assign(node.style, { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' });
+          formulaErrors.push(error.message);
+        }
       }));
       if (disposed || epoch !== generation || !valid()) throw new Error('Callout capture cancelled');
       const bounds = stage.getBoundingClientRect(), height = Math.ceil(bounds.height);
@@ -130,7 +141,7 @@ export function createNativeCalloutRenderer({ write, plugin }) {
       const canvas = await toCanvas(stage, { width, height, pixelRatio: ratio, skipFonts: true, cacheBust: false,
         style: { position: 'static', left: '0', top: '0', zIndex: 'auto', contain: 'none' } });
       if (disposed || epoch !== generation || !valid()) { canvas.width = canvas.height = 0; throw new Error('Callout capture cancelled'); }
-      return { image: canvas, width, height, starts, ratio };
+      return { image: canvas, width, height, starts, ratio, formulaErrors };
     } finally { stage?.remove(); stage = null; }
   }
   return {

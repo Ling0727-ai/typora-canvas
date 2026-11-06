@@ -72,6 +72,29 @@ export async function testNativeCallouts(page) {
   assert.equal(await page.evaluate(() => window.pure.getText()), source);
   await page.evaluate(() => { window.pure.destroy(); document.querySelector('#write').style.display = ''; });
   assert.equal(await page.locator('[data-typora-canvas-callout-stage]').count(), 0);
+  const formulaFailure = await page.evaluate(async () => {
+    const Original = window.Worker, messages = [];
+    window.Worker = new Proxy(Original, { construct(Target, args) {
+      const worker = Reflect.construct(Target, args), send = worker.postMessage.bind(worker);
+      worker.postMessage = data => {
+        messages.push(data.tex);
+        if (data.tex === 'bad') {
+          queueMicrotask(() => worker.onmessage({ data: { id: data.id, error: 'test formula failure' } })); return;
+        }
+        send(data);
+      };
+      return worker;
+    } });
+    const bridge = window.module.exports.createNativeCalloutRenderer({ write: document.querySelector('#write'), plugin: window.calloutTestPlugin });
+    try {
+      const result = await bridge.render({ markdown: '> [!note] Formula failure\n> $x^2$ $bad$ $y^2$', width: 650 });
+      const output = { errors: result.formulaErrors, height: result.height, messages };
+      result.image.width = result.image.height = 0; return output;
+    } finally { bridge.destroy(); window.Worker = Original; }
+  });
+  assert.deepEqual(formulaFailure.errors, ['test formula failure']);
+  assert.deepEqual(formulaFailure.messages, ['x^2', 'bad', 'y^2']);
+  assert.ok(formulaFailure.height > 20 && formulaFailure.height < 250);
   // More visible blocks than the cache budget must settle without eviction loops.
   await page.evaluate(() => {
     window.nativeCaptures = 0;

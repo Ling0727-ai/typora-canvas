@@ -4,6 +4,24 @@ import { CanvasDocument, inputDiff, classifyLines, tableCells } from '../src/edi
 import { sourceRuns, layoutSourceLine, hitSource, caretSource } from '../src/editor-layout.js';
 import { attachCanvasHost } from '../src/host-bridge.js';
 import { formulaSvg } from '../src/formula.js';
+import { readFileSync } from 'node:fs';
+
+test('the fatigue derivation groups all multiline formulas and retains literal source on failure', () => {
+  const source = readFileSync(new URL('./fixtures/fatigue-math.md', import.meta.url), 'utf8');
+  const doc = new CanvasDocument(source).doc, rows = classifyLines(doc);
+  const blocks = rows.filter(r => r.type === 'math');
+  assert.equal(blocks.length, 3);
+  assert.ok(blocks[0].tex.endsWith('=-\\varphi_\\sigma'));
+  assert.ok(blocks[2].tex.endsWith('1+\\varphi_\\sigma}}'));
+  for (let i = 0; i < rows.length; i++) {
+    if (!['math', 'math-tail'].includes(rows[i].type)) continue;
+    const text = doc.line(i + 1).text;
+    const result = layoutSourceLine({ font: '' }, text, rows[i], { width: 300, raw: true,
+      asset: () => ({ status: 'error' }), measure: (_, value) => value.length * 10 });
+    assert.equal(result.lines.flatMap(l => l.pieces).map(p => p.text).join(''), text);
+    assert.ok(result.lines.every(l => l.pieces.every(p => p.x + p.width <= 300)));
+  }
+});
 
 test('rope edits preserve unknown Markdown and existing CRLF byte-for-byte', () => {
   const source = '---\r\nx: 1\r\n---\r\n\r\n> [!note]\r\n中文😀 **bold**\r\n$$x^2$$\r\n';
