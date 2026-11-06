@@ -1,4 +1,8 @@
-[English](README.md) | [简体中文](README_CN_simplised.md)
+**English** | [简体中文](README_CN_simplised.md)
+
+[![Build and check installers](https://img.shields.io/github/actions/workflow/status/Ling0727-ai/typora-canvas/ci.yml?branch=main&label=Build%20and%20check%20installers&logo=github)](https://github.com/Ling0727-ai/typora-canvas/actions/workflows/ci.yml)
+[![npm version](https://img.shields.io/npm/v/%40ling0727-ai%2Ftypora-canvas?label=npm&color=orange)](https://www.npmjs.com/package/@ling0727-ai/typora-canvas)
+[![Latest release](https://img.shields.io/github/v/release/Ling0727-ai/typora-canvas?label=release&color=orange)](https://github.com/Ling0727-ai/typora-canvas/releases/latest)
 
 # Typora Canvas
 
