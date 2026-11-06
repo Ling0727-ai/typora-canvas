@@ -19,6 +19,24 @@ export function cellRange(doc, rows, context, row = context.row, column = contex
   return { from: line.from + offset + cell.from, to: line.from + offset + cell.to, line: index };
 }
 
+export function tableArrowTarget(doc, rows, head, anchor, key) {
+  const context = tableContext(doc, rows, head, anchor);
+  if (!context) return null;
+  const range = cellRange(doc, rows, context), horizontal = key === 'ArrowLeft' || key === 'ArrowRight';
+  const direction = key === 'ArrowLeft' || key === 'ArrowUp' ? -1 : 1;
+  if (horizontal && (head !== anchor || direction < 0 && head > range.from || direction > 0 && head < range.to)) return null;
+  let { row, column } = context;
+  if (horizontal) {
+    column += direction;
+    if (column < 0) { column = context.columns - 1; row--; }
+    if (column >= context.columns) { column = 0; row++; }
+  } else row += direction;
+  if (row < 0 || row >= context.rowCount) return { exit: direction, context };
+  const target = cellRange(doc, rows, context, row, column);
+  return { position: horizontal ? direction < 0 ? target.to : target.from
+    : Math.min(target.to, target.from + Math.max(0, head - range.from)) };
+}
+
 function readTable(doc, rows, context) {
   const records = [];
   for (let i = context.start; i <= context.end; i++) {

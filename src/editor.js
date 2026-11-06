@@ -7,11 +7,12 @@ import { watchCanvasTheme } from './theme.js';
 import { HeightIndex } from './height-index.js';
 import { LruCache } from './layout.js';
 import { BlockSearch } from './search.js';
-import { tableContext as findTableContext, cellRange, editTable, tableSource } from './table-commands.js';
+import { tableContext as findTableContext, cellRange, editTable, tableSource, tableArrowTarget } from './table-commands.js';
 import { mountTableToolbar, TABLE_TOOLS_HEIGHT } from './table-toolbar.js';
 import { CodeHighlighter, languageLabel } from './code-client.js';
 import { mountCodeUI } from './code-ui.js';
 import { blankGeometry } from './spacing.js';
+import { enterQuote } from './quote-commands.js';
 
 const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
 export function mountCanvasEditor({ markdown = '', parent = document.body, embedded = false, onChange = () => {},
@@ -189,6 +190,28 @@ export function mountCanvasEditor({ markdown = '', parent = document.body, embed
         setSelection(next.from + Math.min(prefix.length, next.text.length));
       } else changed(model.replace(next.from, next.from, prefix + eol, { anchor: next.from + prefix.length, head: next.from + prefix.length }));
     } else changed(model.replace(last.to, last.to, eol + prefix));
+  }
+  function arrowTable(key) {
+    const target = tableArrowTarget(model.doc, rows, model.head, model.anchor, key);
+    if (!target) return false;
+    wantedX = null;
+    if (target.position !== undefined) setSelection(target.position);
+    else {
+      const { context, exit } = target, index = exit < 0 ? context.start : context.end;
+      const line = model.doc.line(index + 1), neighbor = index + exit;
+      if (neighbor >= 0 && neighbor < model.doc.lines) {
+        const next = model.doc.line(neighbor + 1);
+        setSelection(exit < 0 ? next.to - (next.text.endsWith('\r') ? 1 : 0) : next.from);
+      } else {
+        const prefix = line.text.slice(0, rows[index].sourceOffset || 0);
+        const eol = line.text.endsWith('\r') || model.doc.line(1).text.endsWith('\r') ? '\r\n' : '\n';
+        const at = exit < 0 ? line.from : line.to;
+        const text = exit < 0 ? prefix + eol : eol + prefix;
+        const position = exit < 0 ? at + prefix.length : at + text.length;
+        changed(model.replace(at, at, text, { anchor: position, head: position }));
+      }
+    }
+    return true;
   }
   function refreshCodeSelection() {
     const i = model.doc.lineAt(model.head).number - 1, row = rows[i];
@@ -780,6 +803,9 @@ export function mountCanvasEditor({ markdown = '', parent = document.body, embed
       refreshTableSelection();
       if (tableSelection) { event.preventDefault(); runTableAction(({ ArrowUp: 'move-row-up', ArrowDown: 'move-row-down', ArrowLeft: 'move-column-left', ArrowRight: 'move-column-right' })[event.key]); return; }
     }
+    if (!mod && !event.altKey && !event.shiftKey && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key) && arrowTable(event.key)) {
+      event.preventDefault(); return;
+    }
     if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') { event.preventDefault(); moveHorizontal(event.key === 'ArrowLeft' ? -1 : 1, event.shiftKey); return; }
     if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
       event.preventDefault(); moveVertical(event.key === 'ArrowUp' ? -1 : 1, event.shiftKey); return;
@@ -799,6 +825,10 @@ export function mountCanvasEditor({ markdown = '', parent = document.body, embed
         if (mod && event.shiftKey) exitTable(); else if (mod) runTableAction('insert-row-below');
         else if (event.shiftKey) changed(model.replaceSelection('<br>')); else navigateTable(1, true);
         return;
+      }
+      if (!mod && !event.altKey && !event.shiftKey) {
+        const change = enterQuote(model, rows);
+        if (change) { event.preventDefault(); wantedX = null; changed(change); return; }
       }
     }
     if (event.key === 'Backspace' && model.from === model.to && model.head > 0 && model.head === model.doc.lineAt(model.head).from) {
