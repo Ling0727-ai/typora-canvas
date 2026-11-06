@@ -33,6 +33,10 @@ function readTable(doc, rows, context) {
     eol: first.text.endsWith('\r') ? '\r\n' : '\n', lastCR: last.text.endsWith('\r') };
 }
 const separatorCell = alignment => alignment === 'center' ? ':---:' : alignment === 'right' ? '---:' : ':---';
+export function tableSource(doc, rows, head, anchor = head) {
+  const context = tableContext(doc, rows, head, anchor); if (!context) throw new Error('请先将光标放入表格');
+  return doc.sliceString(doc.line(context.start + 1).from, doc.line(context.end + 1).to);
+}
 
 // Each operation is one immutable document replacement / one undo step.
 // Only the selected table is serialized; other Markdown stays byte-for-byte.
@@ -101,7 +105,7 @@ export function editTable(model, rows, action, options = {}) {
     const to = targetRow + (action.endsWith('up') ? -1 : 1);
     if (targetRow === 0 || to < 1 || to >= table.records.length) return null;
     [table.records[targetRow], table.records[to]] = [table.records[to], table.records[targetRow]]; targetRow = to;
-  } else throw new Error(`未知表格操作：${action}`);
+  } else if (action !== 'format') throw new Error(`未知表格操作：${action}`);
   targetRow = Math.min(targetRow, table.records.length - 1); targetColumn = Math.min(targetColumn, table.columns - 1);
   const lines = table.records.map(record => {
     const cells = [...record.cells]; while (cells.length < table.columns) cells.push('');

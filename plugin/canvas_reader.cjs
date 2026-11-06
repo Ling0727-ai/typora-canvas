@@ -99,6 +99,9 @@ class CanvasReaderPlugin extends BasePlugin {
       this.content.style.overflow = 'hidden';
       this.content.scrollTop = 0;
       if (mode === 'canvas-editor') {
+        const calloutPlugin = this.utils.getPlugin?.('callouts');
+        const nativeCallouts = calloutPlugin?.config?.ENABLE !== false
+          ? runtime.createNativeCalloutRenderer({ write: this.rendererWrite, plugin: calloutPlugin }) : null;
         const getTheme = () => runtime.readCanvasTheme({ write: this.rendererWrite, content: this.content,
           calloutConfig: this.utils.getPlugin?.('callouts')?.config || { ENABLE: false } });
         this.reader = runtime.mountCanvasEditor({ markdown, parent: this.content, embedded: true, onClose: this.close,
@@ -107,7 +110,7 @@ class CanvasReaderPlugin extends BasePlugin {
           resolveImage: source => {
             if (/^(?:https?:|data:|blob:|file:)/i.test(source)) return source;
             return require('url').pathToFileURL(this.utils.resolveLocalPath(decodeURI(source))).href;
-          }, theme: getTheme(), getTheme });
+          }, theme: getTheme(), getTheme, themeNodes: [this.rendererWrite, this.content], nativeCallouts });
         this.canvasBridge = runtime.attachCanvasHost({ file: File, editor: this.reader,
           onConflict: message => this.reader?.setStatus(message), onRecovery: source => {
           const fs = require('fs'), path = require('path');

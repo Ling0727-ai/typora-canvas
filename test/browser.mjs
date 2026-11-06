@@ -4,6 +4,8 @@ import { mkdir, writeFile, readFile } from 'node:fs/promises';
 import assert from 'node:assert/strict';
 import { testCalloutsAndTheme } from './callouts-browser.mjs';
 import { testTableToolbar } from './table-toolbar-browser.mjs';
+import { testNativeCallouts } from './native-callouts-browser.mjs';
+import { testBlocksAndTheme } from './blocks-browser.mjs';
 
 const server = spawn(process.execPath, ['scripts/serve.mjs'], { stdio: 'pipe', env: { ...process.env, PORT: '4174' } });
 let browser;
@@ -237,6 +239,8 @@ try {
   assert.equal(await page.locator('[data-typora-canvas-editor]').count(), 0);
   await testTableToolbar(page);
   await testCalloutsAndTheme(page);
+  await testBlocksAndTheme(page);
+  await testNativeCallouts(page);
   assert.deepEqual(errors, []);
   console.log(JSON.stringify({ passed: true, initial, searched, resized, hybridStats, pureStats, bigAfter }, null, 2));
 } finally {

@@ -6,7 +6,16 @@ Copyright (c) 2026 Ling0727-ai. Licensed under MIT; the full notice is in
 `licenses/typora-obsidian-callouts.MIT.txt`.
 
 Runtime colors and icon masks are sampled from the installed user's Callout plugin
-and active CSS. This project does not modify that plugin or its repository.
+and active CSS. The optional native Callout bridge creates a scoped, unregistered
+instance of the installed plugin to render temporary DOM into local Canvas caches.
+This project does not modify that plugin or its repository. The test fixtures
+`test/fixtures/callouts-plugin.cjs` and `callouts-native.css` are from the same MIT
+project; the plugin patch is based on obgnail/typora_plugin 1.19.14 (MIT,
+copyright 2023 obgnail).
+
+Code highlighting uses highlight.js 11.12.0 (BSD-3-Clause), copyright 2006 Ivan
+Sagalaev and highlight.js contributors. The full notice is in
+`licenses/highlight.js.BSD-3-Clause.txt`.
 
 Other dependencies retain their licenses in their respective packages and bundled
 license comments. The project source is MIT licensed as described in `LICENSE`.

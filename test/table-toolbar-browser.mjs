@@ -30,7 +30,26 @@ export async function testTableToolbar(page) {
   assert.equal((await page.evaluate(() => window.pure.getStats())).table.row, 1);
   await toolbar.getByRole('button', { name: '列右对齐', exact: true }).click();
   assert.ok((await text()).includes('| ---: | :---: |'));
+  await page.waitForFunction(() => document.querySelector('[data-typora-canvas-editor]').shadowRoot.querySelector('[data-command="right"]').getAttribute('aria-pressed') === 'true');
   assert.equal(await toolbar.getByRole('button', { name: '列右对齐', exact: true }).getAttribute('aria-pressed'), 'true');
+  await page.keyboard.press('Control+z'); assert.equal(await text(), original);
+  for (const key of ['Alt+ArrowDown', 'Alt+ArrowRight']) {
+    await page.keyboard.press(key); assert.notEqual(await text(), original);
+    await page.keyboard.press('Control+z'); assert.equal(await text(), original);
+  }
+  await page.keyboard.press('Alt+ArrowDown'); const movedDown = await text();
+  await page.keyboard.press('Alt+ArrowUp'); assert.equal(await text(), original.replace('| --- |', '| :--- |'));
+  await page.keyboard.press('Control+z'); assert.equal(await text(), movedDown);
+  await page.keyboard.press('Control+z'); assert.equal(await text(), original);
+  await page.keyboard.press('Alt+ArrowRight'); const movedRight = await text();
+  await page.keyboard.press('Alt+ArrowLeft'); assert.equal(await text(), original.replace('| --- |', '| :--- |'));
+  await page.keyboard.press('Control+z'); assert.equal(await text(), movedRight);
+  await page.keyboard.press('Control+z'); assert.equal(await text(), original);
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  await menu('复制表格');
+  assert.equal((await page.evaluate(() => navigator.clipboard.readText())).replace(/\r\n/g, '\n'), original.split('\n').slice(2, 6).join('\n'));
+  await menu('格式化表格源码'); const formatted = await text();
+  assert.ok(formatted.includes('$\\alpha$')); assert.ok(formatted.endsWith('\n\nAfter'));
   await page.keyboard.press('Control+z'); assert.equal(await text(), original);
 
   await toolbar.getByRole('button', { name: '调整表格行列', exact: true }).click();
@@ -57,6 +76,9 @@ export async function testTableToolbar(page) {
   await page.keyboard.press('Control+z'); await page.keyboard.press('Control+z');
   assert.equal(await text(), resized);
   await page.keyboard.press('Control+Enter');
+  assert.deepEqual(shape(await text()), { rows: 5, columns: 3 });
+  await page.keyboard.press('Control+z'); assert.equal(await text(), resized);
+  await page.keyboard.press('Control+Shift+Enter');
   await toolbar.waitFor({ state: 'hidden' });
   await page.keyboard.insertText('Outside'); assert.ok((await text()).includes('Outside'));
   await page.keyboard.press('Control+z'); assert.equal(await text(), resized);

@@ -1,5 +1,6 @@
 import { Text } from '@codemirror/state';
 import { calloutContexts } from './callouts.js';
+import { classifyBlocks } from './blocks.js';
 
 // Immutable rope snapshots preserve Markdown verbatim, including unknown syntax
 // and existing CRLF. No rich-text-to-Markdown serialization is involved.
@@ -68,40 +69,7 @@ export function inputDiff(before, after) {
 export function classifyLines(doc, { customCallouts = true } = {}) {
   const { contexts, groups } = calloutContexts(doc, { customEnabled: customCallouts });
   const texts = contexts.map(c => c.content);
-  const rows = [];
-  let fence = null, mathStart = -1, fenceGroup = null, mathGroup = null;
-  for (let n = 1; n <= doc.lines; n++) {
-    const text = texts[n - 1];
-    const path = contexts[n - 1].callouts;
-    if (fenceGroup && !path.some(group => group.id === fenceGroup)) { fence = null; fenceGroup = null; }
-    if (mathGroup && !path.some(group => group.id === mathGroup)) { mathStart = -1; mathGroup = null; }
-    const row = { type: 'paragraph', level: 0, revision: 0 };
-    const marker = /^\s*(`{3,}|~{3,})/.exec(text);
-    if (contexts[n - 1].calloutHeader) row.type = 'callout-title';
-    else if (fence) {
-      row.type = 'code';
-      if (marker && marker[1][0] === fence[0] && marker[1].length >= fence.length) fence = null;
-    } else if (marker) { fence = marker[1]; fenceGroup = path.at(-1)?.id || null; row.type = 'code'; }
-    else if (/^\s*\$\$\s*$/.test(text)) {
-      if (mathStart < 0) { mathStart = n - 1; mathGroup = path.at(-1)?.id || null; row.type = 'math'; }
-      else {
-        const tex = texts.slice(mathStart + 1, n - 1).join('\n').trim();
-        rows[mathStart] = { ...rows[mathStart], type: 'math', tex, end: n - 1, revision: 0 };
-        for (let i = mathStart + 1; i < n - 1; i++) rows[i] = { ...rows[i], type: 'math-tail', start: mathStart, end: n - 1, revision: 0 };
-        row.type = 'math-tail'; row.start = mathStart; row.end = n - 1; mathStart = -1;
-      }
-    } else if (mathStart >= 0) row.type = 'paragraph';
-    else {
-      const formula = /^\s*\$\$(.+)\$\$\s*$/.exec(text);
-      const image = /^\s*!\[([^\]]*)\]\(([^\s]+?)(?:\s+"[^"]*")?\)\s*$/.exec(text);
-      const heading = /^(#{1,6})\s/.exec(text);
-      if (formula) Object.assign(row, { type: 'math', tex: formula[1], end: n - 1 });
-      else if (image) Object.assign(row, { type: 'image', alt: image[1], url: image[2] });
-      else if (heading) Object.assign(row, { type: 'heading', level: heading[1].length });
-      else if (/^\s*>/.test(text)) row.type = 'quote';
-    }
-    rows.push({ ...row, ...contexts[n - 1] });
-  }
+  const rows = classifyBlocks(contexts);
   for (let i = 0; i < rows.length - 1; i++) {
     if (rows[i].type !== 'paragraph' || rows[i + 1].type !== 'paragraph') continue;
     if (rows[i].callouts.at(-1)?.id !== rows[i + 1].callouts.at(-1)?.id) continue;
@@ -119,6 +87,14 @@ export function classifyLines(doc, { customCallouts = true } = {}) {
     i = end - 1;
   }
   rows.calloutGroups = groups;
+  let previous = null;
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i], next = rows[i + 1], before = rows[i - 1];
+    row.paragraphStart = !before || before.type !== 'paragraph' || before.callouts.at(-1)?.id !== row.callouts.at(-1)?.id;
+    row.paragraphEnd = !next || next.type !== 'paragraph' || next.callouts.at(-1)?.id !== row.callouts.at(-1)?.id;
+    row.previousBlock = previous;
+    if (row.type !== 'blank') previous = { type: row.type, level: row.level, end: row.paragraphEnd };
+  }
   return rows;
 }
 

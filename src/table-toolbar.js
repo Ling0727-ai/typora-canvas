@@ -7,7 +7,8 @@ export function mountTableToolbar(main, { action, focusEditor }) {
   const menuItems = [
     ['insert-row-above', '在上方插入行'], ['insert-row-below', '在下方插入行'], ['delete-row', '删除当前行'],
     ['insert-column-left', '在左侧插入列'], ['insert-column-right', '在右侧插入列'], ['delete-column', '删除当前列'],
-    ['move-row-up', '向上移动行'], ['move-row-down', '向下移动行'], ['move-column-left', '向左移动列'], ['move-column-right', '向右移动列']
+    ['move-row-up', '向上移动行'], ['move-row-down', '向下移动行'], ['move-column-left', '向左移动列'], ['move-column-right', '向右移动列'],
+    ['copy', '复制表格'], ['format', '格式化表格源码']
   ];
   host.innerHTML = `<style>
     .table-ui{position:absolute;inset:0;pointer-events:none;z-index:4}.table-ui[hidden],.table-ui [hidden]{display:none!important}
@@ -18,7 +19,8 @@ export function mountTableToolbar(main, { action, focusEditor }) {
     .table-popup{position:absolute;pointer-events:auto;background:var(--tc-bg,#fff);border:1px solid #8997b377;box-shadow:0 5px 20px #0002;border-radius:5px;padding:10px;max-width:calc(100% - 16px);overflow:auto}
     .table-resize{width:250px}.table-resize label{display:flex;align-items:center;gap:8px;margin-bottom:8px}.table-resize input{width:80px;min-width:40px;flex:1}
     .table-resize .form-actions{display:flex;justify-content:flex-end;gap:6px}.table-menu{width:180px;padding:4px}
-    .table-menu button{display:block;width:100%;text-align:left;border:0;padding:6px 10px;background:transparent;border-radius:3px}
+    .table-menu button{display:flex;justify-content:space-between;gap:10px;width:100%;text-align:left;border:0;padding:6px 10px;background:transparent;border-radius:3px}
+    .table-menu kbd{font:10px sans-serif;opacity:.6;white-space:nowrap}
     .table-ui button:disabled{opacity:.35;cursor:default}
     </style><div class="table-tools" role="toolbar" aria-label="表格工具">
     ${button('调整表格行列', 'resize', icon('<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>'))}
@@ -33,7 +35,7 @@ export function mountTableToolbar(main, { action, focusEditor }) {
       <label>列数<input name="columns" type="number" min="1" max="200" required aria-label="表格列数"></label>
       <div class="form-actions"><button type="button" class="table-cancel">取消</button><button type="submit">应用行列数</button></div>
     </form><div class="table-popup table-menu" role="menu" aria-label="更多表格操作" hidden>
-    ${menuItems.map(([key, label]) => `<button type="button" role="menuitem" data-command="${key}">${label}</button>`).join('')}
+    ${menuItems.map(([key, label]) => `<button type="button" role="menuitem" aria-label="${label}" data-command="${key}">${label}<kbd>${({ 'insert-row-below': 'Ctrl+Enter', 'move-row-up': 'Alt+↑', 'move-row-down': 'Alt+↓', 'move-column-left': 'Alt+←', 'move-column-right': 'Alt+→' })[key] || ''}</kbd></button>`).join('')}
     </div>`;
   main.append(host);
   const bar = host.querySelector('.table-tools'), form = host.querySelector('form'), menu = host.querySelector('.table-menu');
