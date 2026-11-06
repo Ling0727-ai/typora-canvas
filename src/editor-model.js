@@ -112,9 +112,10 @@ export function classifyLines(doc, { customCallouts = true } = {}) {
     rows[i + 1] = { ...rows[i + 1], type: 'table-separator', revision: 0 };
     let end = i + 2;
     while (end < rows.length && rows[end].type === 'paragraph' &&
-        rows[end].callouts.at(-1)?.id === rows[i].callouts.at(-1)?.id && tableCells(texts[end]).length >= header.length) {
+        rows[end].callouts.at(-1)?.id === rows[i].callouts.at(-1)?.id && tableCells(texts[end]).length > 0) {
       rows[end] = { ...rows[end], type: 'table', columns: header.length, alignments, revision: 0 }; end++;
     }
+    for (let j = i; j < end; j++) Object.assign(rows[j], { tableStart: i, tableEnd: end - 1, tableRow: j === i ? 0 : j === i + 1 ? -1 : j - i - 1 });
     i = end - 1;
   }
   rows.calloutGroups = groups;

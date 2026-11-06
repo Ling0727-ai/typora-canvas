@@ -26,11 +26,15 @@ export function sourceRuns(text, row, raw, cursor = -1, selection = null) {
   const prefix = /^(#{1,6}\s+|\s*>\s?)/.exec(text);
   if (prefix) start = prefix[0].length;
   const runs = [];
-  const pattern = /\*\*([^*]+)\*\*|__([^_]+)__|`([^`]+)`|\*([^*]+)\*|\[([^\]]+)\]\(([^)]+)\)|\$([^$\n]+)\$/g;
+  const pattern = /\*\*([^*]+)\*\*|__([^_]+)__|`([^`]+)`|\*([^*]+)\*|\[([^\]]+)\]\(([^)]+)\)|\$([^$\n]+)\$|(<[bB][rR]\s*\/?>)/g;
   let consumed = start, match;
   pattern.lastIndex = start;
   while ((match = pattern.exec(text))) {
     if (match.index > consumed) runs.push({ text: text.slice(consumed, match.index), from: consumed, to: match.index });
+    if (match[8]) {
+      runs.push({ text: '', break: true, from: match.index, to: pattern.lastIndex });
+      consumed = pattern.lastIndex; continue;
+    }
     const value = match[1] || match[2] || match[3] || match[4] || match[5] || match[7];
     const offset = match[0].indexOf(value);
     runs.push({ text: value, from: match[7] ? match.index : match.index + offset,
@@ -115,6 +119,9 @@ export function layoutSourceLine(ctx, text, row, { width, raw, font = editorFont
     x = 0; pieces = []; ascent = lineHeight * .8; descent = lineHeight * .2;
   };
   for (const run of sourceRuns(text.replace(/\r$/, ''), row, raw, cursor, selection)) {
+    if (run.break) {
+      pieces.push({ ...run, x, width: 0, font: `${fontSize}px ${font}` }); finish(); continue;
+    }
     if (run.tex) {
       const media = asset('math', run.tex, false);
       if (media?.image) {
@@ -146,7 +153,7 @@ export function layoutSourceLine(ctx, text, row, { width, raw, font = editorFont
 export function hitSource(layout, x, y, textLength) {
   if (layout.cells) {
     const cell = layout.cells.find(c => x < c.x + c.width) || layout.cells.at(-1);
-    return cell.from + hitSource(cell.layout, x - cell.x - 8, y - 5, cell.text.length);
+    return cell.from + hitSource(cell.layout, x - cell.x - 8, y - 5 - (layout.tableTopGap || 0), cell.text.length);
   }
   if (!layout.lines.length) return x < (layout.mediaWidth || 0) / 2 ? 0 : textLength;
   const line = layout.lines.find(l => y < l.top + l.height) || layout.lines.at(-1);
@@ -161,7 +168,7 @@ export function caretSource(layout, position) {
   if (layout.cells) {
     const cell = layout.cells.find(c => position <= c.to + 1) || layout.cells.at(-1);
     const caret = caretSource(cell.layout, Math.max(0, Math.min(cell.text.length, position - cell.from)));
-    return { ...caret, x: cell.x + 8 + caret.x, y: 5 + caret.y };
+    return { ...caret, x: cell.x + 8 + caret.x, y: 5 + caret.y + (layout.tableTopGap || 0) };
   }
   if (!layout.lines.length) return { x: (layout.mediaX || 0) + (position ? layout.mediaWidth || 0 : 0), y: layout.top, height: layout.lineHeight };
   let result;

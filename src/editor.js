@@ -6,6 +6,8 @@ import { watchCanvasTheme } from './theme.js';
 import { HeightIndex } from './height-index.js';
 import { LruCache } from './layout.js';
 import { BlockSearch } from './search.js';
+import { tableContext as findTableContext, cellRange, editTable } from './table-commands.js';
+import { mountTableToolbar, TABLE_TOOLS_HEIGHT } from './table-toolbar.js';
 
 const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
 export function mountCanvasEditor({ markdown = '', parent = document.body, embedded = false, onChange = () => {},
@@ -55,6 +57,8 @@ export function mountCanvasEditor({ markdown = '', parent = document.body, embed
   let openCallouts = new Set(), hoverCallouts = new Set();
   let searchCallouts = new Set(), assetEpoch = 0;
   const foldOverrides = new Map();
+  let tableSelection = null, tableToolbarStart = -1;
+  const tableUI = mountTableToolbar(main, { action: runTableAction, focusEditor: () => input.focus({ preventScroll: true }) });
   const schedule = () => { if (!raf && !disposed) raf = requestAnimationFrame(paint); };
   const activeLines = () => {
     const result = new Set();
@@ -95,11 +99,60 @@ export function mountCanvasEditor({ markdown = '', parent = document.body, embed
     if (hiddenCallout(row)) return .01;
     if (!raw && ['math-tail', 'table-separator'].includes(row.type)) return 0.01;
     const size = row.type === 'heading' ? Math.max(fontSize, 32 - row.level * 2) : fontSize;
-    return Math.max(1, Math.ceil(text.length / Math.max(1, contentWidth / size))) * Math.ceil(size * 1.7) + 14;
+    return Math.max(1, Math.ceil(text.length / Math.max(1, contentWidth / size))) * Math.ceil(size * 1.7) + 14 + (i === tableToolbarStart ? TABLE_TOOLS_HEIGHT : 0);
   };
+  function refreshTableSelection(adjustHeights = true) {
+    const previous = tableToolbarStart;
+    tableSelection = findTableContext(model.doc, rows, model.head, model.anchor);
+    tableToolbarStart = tableSelection?.start ?? -1;
+    if (!tableSelection) tableUI.update(null);
+    if (adjustHeights && heights && previous !== tableToolbarStart) {
+      for (const i of [previous, tableToolbarStart]) if (i >= 0 && i < heights.length && i < rows.length) heights.update(i, estimate(i));
+    }
+  }
+  function runTableAction(action, options) {
+    if (composing) return;
+    try {
+      const change = editTable(model, rows, action, options);
+      if (change) changed(change);
+    } catch (error) { errorMessage = error.message; schedule(); }
+  }
+  function focusCell(row, column, select = true) {
+    refreshTableSelection(); if (!tableSelection) return;
+    const range = cellRange(model.doc, rows, tableSelection, row, column);
+    setSelection(range.from, select ? range.to : range.from);
+  }
+  function navigateTable(direction, vertical = false) {
+    refreshTableSelection(); const context = tableSelection; if (!context) return false;
+    let row = context.row, column = context.column;
+    if (vertical) row++;
+    else {
+      column += direction;
+      if (column >= context.columns) { column = 0; row++; }
+      if (column < 0) { column = context.columns - 1; row--; }
+    }
+    if (row < 0) { setSelection(model.doc.line(context.start + 1).from); return true; }
+    if (row >= context.rowCount) {
+      runTableAction('insert-row-below'); refreshTableSelection();
+      row = tableSelection.row; // The operation selects the inserted row.
+    }
+    focusCell(row, column); return true;
+  }
+  function exitTable() {
+    refreshTableSelection(); const context = tableSelection; if (!context) return;
+    const last = model.doc.line(context.end + 1), prefix = last.text.slice(0, rows[context.end].sourceOffset || 0);
+    const eol = last.text.endsWith('\r') ? '\r\n' : '\n';
+    if (last.to < model.length) {
+      const next = model.doc.line(context.end + 2);
+      if (next.text.replace(/\r$/, '') === prefix.trimEnd() || next.text.replace(/\r$/, '') === prefix) {
+        setSelection(next.from + Math.min(prefix.length, next.text.length));
+      } else changed(model.replace(next.from, next.from, prefix + eol, { anchor: next.from + prefix.length, head: next.from + prefix.length }));
+    } else changed(model.replace(last.to, last.to, eol + prefix));
+  }
   function rebuild() {
     structureRebuilds++;
     rows = classifyLines(model.doc, { customCallouts: calloutTheme.customEnabled }); layouts.clear();
+    refreshTableSelection(false);
     openCallouts = effectiveOpenCallouts(activeLines());
     heights = new HeightIndex(rows.map((_, i) => estimate(i)));
     spacer.style.height = `${Math.max(height, heights.total + 48)}px`;
@@ -161,7 +214,7 @@ export function mountCanvasEditor({ markdown = '', parent = document.body, embed
   function layoutKey(i, raw) {
     const line = model.doc.line(i + 1);
     const cursor = raw && (rows[i].type === 'table' || line.text.includes('$')) ? `:${model.head - line.from}:${model.anchor - line.from}` : '';
-    return `${i}:${raw}:${rows[i].revision}${cursor}`;
+    return `${i}:${raw}:${rows[i].revision}${cursor}${i === tableToolbarStart ? ':tools' : ''}`;
   }
   function layout(i, rawSet = activeLines()) {
     const raw = rawSet.has(i), key = layoutKey(i, raw);
@@ -179,6 +232,10 @@ export function mountCanvasEditor({ markdown = '', parent = document.body, embed
           if (w === undefined) { ctx.font = f; w = measurements.set(key, ctx.measureText(text).width); }
           return w;
         } });
+      if (i === tableToolbarStart && value.cells) {
+        value.tableTopGap = TABLE_TOOLS_HEIGHT; value.height += TABLE_TOOLS_HEIGHT;
+        value.lines.forEach(line => { line.top += TABLE_TOOLS_HEIGHT; });
+      }
       layouts.set(key, value);
     }
     heights.update(i, Math.max(.01, value.height));
@@ -202,7 +259,8 @@ export function mountCanvasEditor({ markdown = '', parent = document.body, embed
   function revealCaret() {
     const caret = caretBox();
     spacer.style.height = `${Math.max(height, heights.total + 48)}px`;
-    if (caret.y < scroll.scrollTop + 12) scroll.scrollTop = Math.max(0, caret.y - 12);
+    const topPadding = tableSelection ? TABLE_TOOLS_HEIGHT + 8 : 12;
+    if (caret.y < scroll.scrollTop + topPadding) scroll.scrollTop = Math.max(0, caret.y - topPadding);
     else if (caret.y + caret.height > scroll.scrollTop + height - 12) scroll.scrollTop = caret.y + caret.height - height + 12;
     input.style.left = `${Math.max(0, Math.min(width - 3, caret.x))}px`;
     input.style.top = `${Math.max(0, Math.min(height - 28, caret.y - scroll.scrollTop))}px`;
@@ -218,11 +276,12 @@ export function mountCanvasEditor({ markdown = '', parent = document.body, embed
         ...next, sourceLine: old.sourceLine, sourceOffset: old.sourceOffset, callouts: old.callouts, revision: old.revision + 1 };
       heights.update(i, estimate(i, true));
     }
+    refreshTableSelection();
     hits = []; searchEpoch++; search.cancel();
     onChange(model); syncInput(); revealCaret(); schedule();
   }
   function setSelection(anchor, head = anchor, reveal = true) {
-    model.select(anchor, head); syncInput(); if (reveal) revealCaret(); schedule();
+    model.select(anchor, head); refreshTableSelection(); syncInput(); if (reveal) revealCaret(); schedule();
   }
   function resize() {
     const nextWidth = Math.max(1, main.clientWidth), nextHeight = Math.max(1, main.clientHeight);
@@ -253,6 +312,7 @@ export function mountCanvasEditor({ markdown = '', parent = document.body, embed
   function paint() {
     raf = 0; if (disposed || !heights) return;
     const started = performance.now(), rawSet = activeLines();
+    refreshTableSelection();
     updateOpenCallouts(rawSet);
     const anchor = heights.find(scroll.scrollTop), within = scroll.scrollTop - heights.prefix(anchor);
     for (const i of new Set([...rawSet, ...previousRaw])) if (i < rows.length && rawSet.has(i) !== previousRaw.has(i)) heights.update(i, estimate(i, rawSet.has(i)));
@@ -289,11 +349,12 @@ export function mountCanvasEditor({ markdown = '', parent = document.body, embed
       if (value.cells) {
         drawnTables++;
         const tableX = left + (value.inset || 0), tableWidth = value.cellWidth * row.columns;
-        if (row.header) { ctx.fillStyle = '#8997b322'; ctx.fillRect(tableX, y, tableWidth, value.height); }
+        const tableY = y + (value.tableTopGap || 0), rowHeight = value.height - (value.tableTopGap || 0);
+        if (row.header) { ctx.fillStyle = '#8997b322'; ctx.fillRect(tableX, tableY, tableWidth, rowHeight); }
         ctx.strokeStyle = '#8997b388'; ctx.lineWidth = 1;
-        ctx.strokeRect(tableX, y, tableWidth, value.height);
+        ctx.strokeRect(tableX, tableY, tableWidth, rowHeight);
         for (let c = 1; c < row.columns; c++) {
-          ctx.beginPath(); ctx.moveTo(tableX + c * value.cellWidth, y); ctx.lineTo(tableX + c * value.cellWidth, y + value.height); ctx.stroke();
+          ctx.beginPath(); ctx.moveTo(tableX + c * value.cellWidth, tableY); ctx.lineTo(tableX + c * value.cellWidth, tableY + rowHeight); ctx.stroke();
         }
       }
       if (hits.includes(i)) { ctx.fillStyle = '#e9b94933'; ctx.fillRect(left - 8, y, contentWidth + 16, value.height); }
@@ -330,6 +391,11 @@ export function mountCanvasEditor({ markdown = '', parent = document.body, embed
       input.style.top = `${Math.max(0, Math.min(height - 28, caret.y - scroll.scrollTop))}px`;
     }
     ctx.restore(); lastPaintMs = performance.now() - started;
+    if (tableSelection) {
+      const header = layout(tableSelection.start, rawSet), inset = header.inset || 0;
+      tableUI.update(tableSelection, { x: left + inset, y: Math.max(0, Math.min(height - 30, heights.prefix(tableSelection.start) - scroll.scrollTop)),
+        width: Math.max(40, Math.min(contentWidth - inset, scroll.clientWidth - left - inset - 4)) });
+    }
     const line = model.doc.lineAt(model.head);
     status.textContent = errorMessage || `Canvas 编辑${model.dirty ? ' · 未保存' : ''} · ${line.number}:${model.head - line.from + 1} · 绘制 ${drawn}/${rows.length} 行 · ${lastPaintMs.toFixed(1)}ms`;
     if (deferred) schedule();
@@ -401,7 +467,14 @@ export function mountCanvasEditor({ markdown = '', parent = document.body, embed
       else if (event.key === 'Escape') { event.preventDefault(); closeFind(); }
       return;
     }
-    if (key === 'escape') { event.preventDefault(); if (findPanel.classList.contains('open')) closeFind(); else onClose(); return; }
+    if (tableUI.owns(event.composedPath()[0])) {
+      if (key === 'escape') { event.preventDefault(); tableUI.close(); input.focus({ preventScroll: true }); }
+      return;
+    }
+    if (key === 'escape') {
+      event.preventDefault();
+      if (tableUI.open) tableUI.close(); else if (findPanel.classList.contains('open')) closeFind(); else onClose(); return;
+    }
     if (mod && key === 'a') { event.preventDefault(); setSelection(0, model.length); return; }
     if (mod && (key === 'z' || key === 'y')) {
       event.preventDefault(); if ((key === 'y' || event.shiftKey) ? model.redo() : model.undo()) changed(); return;
@@ -417,7 +490,17 @@ export function mountCanvasEditor({ markdown = '', parent = document.body, embed
       const next = event.key === 'Home' ? mod ? 0 : line.from : mod ? model.length : line.to;
       wantedX = null; setSelection(event.shiftKey ? model.anchor : next, next); return;
     }
-    if (event.key === 'Tab') { event.preventDefault(); changed(model.replaceSelection('  ')); return; }
+    if (event.key === 'Tab') {
+      event.preventDefault(); if (!navigateTable(event.shiftKey ? -1 : 1)) changed(model.replaceSelection('  ')); return;
+    }
+    if (event.key === 'Enter') {
+      refreshTableSelection();
+      if (tableSelection) {
+        event.preventDefault();
+        if (mod) exitTable(); else if (event.shiftKey) changed(model.replaceSelection('<br>')); else navigateTable(1, true);
+        return;
+      }
+    }
     if (event.key === 'Backspace' && model.from === model.to && model.head > 0 && model.head === model.doc.lineAt(model.head).from) {
       event.preventDefault(); changed(model.replace(model.head - 1, model.head, '')); return;
     }
@@ -472,11 +555,12 @@ export function mountCanvasEditor({ markdown = '', parent = document.body, embed
       assetBytes, previewFormulas, drawnTables, calloutGroups: rows.calloutGroups.length,
       hiddenCalloutLines: rows.filter(hiddenCallout).length,
       theme: { color: drawColor, background, font, fontSize },
+      table: tableSelection ? { row: tableSelection.row, column: tableSelection.column, rows: tableSelection.rowCount, columns: tableSelection.columns } : null,
       failedAssets: [...assets.values()].filter(a => a.status === 'error').length,
       structureRebuilds, selection: model.selection,
       scopedInputLength: input.value.length }), destroy() {
       if (disposed) return; disposed = true; cancelAnimationFrame(raf); clearTimeout(searchTimer); search.cancel(); resizeObserver.disconnect(); stopThemeWatch();
-      events.forEach(([el, name, fn, options]) => el.removeEventListener(name, fn, options));
+      events.forEach(([el, name, fn, options]) => el.removeEventListener(name, fn, options)); tableUI.destroy();
       formulaEngine.destroy();
       for (const entry of assets.values()) if (entry.image) entry.image.src = '';
       assets.clear(); layouts.clear(); measurements.clear(); host.remove();
