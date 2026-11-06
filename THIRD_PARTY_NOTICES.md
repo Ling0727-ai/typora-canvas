@@ -25,5 +25,10 @@ Sagalaev and highlight.js contributors. The full notice is in
 Other dependencies retain their licenses in their respective packages and bundled
 license comments. The project source is MIT licensed as described in `LICENSE`.
 
+`src/list-block.js` adapts markdown-it's MIT-licensed block list rule to support
+parenthesized, alphabetic and Roman counters and retain exact source mappings.
+Copyright (c) 2014 Vitaly Puzrin, Alex Kocharin. The full license is included in
+`licenses/markdown-it.MIT.txt` and in the prebuilt plugin payload.
+
 The standalone release installer bundles smol-toml (MIT). Its full license is
 included in `canvas_reader/licenses/smol-toml.MIT.txt` in the plugin payload.

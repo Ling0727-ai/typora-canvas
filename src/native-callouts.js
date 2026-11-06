@@ -4,6 +4,7 @@ import { FormulaEngine } from './formula-client.js';
 import { displayMathGeometry } from './math-geometry.js';
 import { CanvasDocument, classifyLines } from './editor-model.js';
 import { insertBlankParagraphs } from './spacing.js';
+import { useCanvasLists, listMarker } from './lists.js';
 
 // Run a second, unregistered instance of the installed plugin with scoped
 // entities. Its lifecycle/hotkeys never run and its original instance is intact.
@@ -18,7 +19,7 @@ export function createNativeCalloutRenderer({ write, plugin, images = null }) {
   Object.defineProperty(entities, 'eWrite', { get: () => stage });
   instance.utils = Object.create(plugin.utils);
   Object.defineProperty(instance.utils, 'entities', { value: entities });
-  const md = new MarkdownIt({ html: false, breaks: false, linkify: false });
+  const md = useCanvasLists(new MarkdownIt({ html: false, breaks: false, linkify: false }));
   // Permit explicit line breaks without enabling arbitrary embedded HTML.
   md.inline.ruler.before('autolink', 'canvas_break', (state, silent) => {
     const match = /^<br\s*\/?>/i.exec(state.src.slice(state.pos));
@@ -74,6 +75,7 @@ export function createNativeCalloutRenderer({ write, plugin, images = null }) {
     const tokens = insertBlankParagraphs(parsed, rows, () => new parsed[0].constructor('canvas_blank', 'p', 0));
     for (const token of tokens) {
       if (token.map && token.nesting === 1) token.attrSet('data-tc-line', String(token.map[0]));
+      if (token.type === 'list_item_open' && rows[token.map[0]]?.list?.marker?.extended) token.attrSet('data-tc-marker', listMarker(rows[token.map[0]].list));
       if (token.type === 'inline') token.type = 'canvas_inline';
     }
     md.renderer.rules.canvas_inline = (all, i, options, env, renderer) => {
@@ -116,6 +118,11 @@ export function createNativeCalloutRenderer({ write, plugin, images = null }) {
       visibility: 'visible', pointerEvents: 'none', transition: 'none', animation: 'none' };
     for (const [key, value] of Object.entries(geometry)) stage.style.setProperty(key.replace(/[A-Z]/g, letter => `-${letter.toLowerCase()}`), value, 'important');
     stage.setAttribute('aria-hidden', 'true'); stage.innerHTML = render(markdown); doc.body.append(stage);
+    if (stage.querySelector('[data-tc-marker]')) {
+      const markerStyle = doc.createElement('style');
+      markerStyle.textContent = '[data-typora-canvas-callout-stage] li[data-tc-marker]::marker {content:attr(data-tc-marker) " ";}';
+      stage.append(markerStyle);
+    }
     try {
       for (const p of stage.querySelectorAll('p')) {
         while (p.firstChild?.nodeType === 3 && !p.firstChild.textContent.trim()) p.firstChild.remove();
@@ -181,6 +188,15 @@ export function createNativeCalloutRenderer({ write, plugin, images = null }) {
       }));
       if (disposed || epoch !== generation || !valid()) throw new Error('Callout capture cancelled');
       const bounds = stage.getBoundingClientRect(), height = Math.ceil(bounds.height);
+      let titleBaseline = null;
+      const firstParagraph = stage.querySelector('.plugin-callout > p');
+      if (firstParagraph) {
+        const probe = doc.createElement('span');
+        probe.style.cssText = 'display:inline-block;width:0;height:0;vertical-align:baseline;padding:0;margin:0;border:0;line-height:0;font-size:0';
+        firstParagraph.insertBefore(probe, firstParagraph.firstElementChild?.nextSibling || null);
+        titleBaseline = probe.getBoundingClientRect().top - bounds.top;
+        probe.remove();
+      }
       const links = [...stage.querySelectorAll('a[href]')].flatMap(a => [...a.getClientRects()].map(r => ({
         href: a.getAttribute('href'), x: r.left - bounds.left, y: r.top - bounds.top, width: r.width, height: r.height })));
       const ratio = Math.min(2, pixelRatio);
@@ -199,7 +215,7 @@ export function createNativeCalloutRenderer({ write, plugin, images = null }) {
       const canvas = await toCanvas(stage, { width, height, pixelRatio: ratio, skipFonts: true, cacheBust: false,
         style: { position: 'static', left: '0', top: '0', zIndex: 'auto', contain: 'none' } });
       if (disposed || epoch !== generation || !valid()) { canvas.width = canvas.height = 0; throw new Error('Callout capture cancelled'); }
-      return { image: canvas, width, height, starts, ratio, formulaErrors, links };
+      return { image: canvas, width, height, starts, ratio, formulaErrors, links, titleBaseline };
     } finally { stage?.remove(); stage = null; }
   }
   return {

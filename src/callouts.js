@@ -66,13 +66,14 @@ function quotePrefix(text) {
   return { depth: offsets.length, offset, offsets };
 }
 
-export function calloutContexts(doc, { customEnabled = true } = {}) {
+export function calloutContexts(doc, { customEnabled = true, listScopes = [] } = {}) {
   const contexts = [], groups = [], stack = [];
   let fence = null;
   for (let i = 0; i < doc.lines; i++) {
     const original = doc.line(i + 1).text, prefix = quotePrefix(original);
-    if (fence && prefix.depth < fence.depth) fence = null;
-    while (stack.length && stack.at(-1).depth > prefix.depth) stack.pop().end = i - 1;
+    const scopes = listScopes[i] || [];
+    if (fence && (prefix.depth < fence.depth || fence.listScope !== undefined && !scopes.includes(fence.listScope))) fence = null;
+    while (stack.length && (stack.at(-1).depth > prefix.depth || stack.at(-1).listScope !== undefined && !scopes.includes(stack.at(-1).listScope))) stack.pop().end = i - 1;
     const text = original.slice(prefix.offset);
     const marker = /^\s*(`{3,}|~{3,})/.exec(text);
     const candidate = !fence && prefix.depth ? /^\[!(\w+)\]([+-]?)[\t ]*(.*)/.exec(text) : null;
@@ -81,6 +82,7 @@ export function calloutContexts(doc, { customEnabled = true } = {}) {
       while (stack.length && stack.at(-1).depth >= prefix.depth) stack.pop().end = i - 1;
       const title = match[3].trim();
       const group = { id: `${i}:${prefix.depth}:${match[1].toLowerCase()}`, start: i, end: i, depth: prefix.depth,
+        listScope: scopes.at(-1),
         type: match[1].toLowerCase(), title: title || match[1], fold: match[2],
         titleFrom: title ? prefix.offset + match[0].length - match[3].length + match[3].indexOf(title) : prefix.offset + 2 };
       stack.push(group); groups.push(group);
@@ -90,7 +92,7 @@ export function calloutContexts(doc, { customEnabled = true } = {}) {
     contexts.push({ sourceLine: i, sourceOffset, content: original.slice(sourceOffset), callouts: path,
       calloutHeader: match ? stack.at(-1) : null });
     if (fence) { if (marker && marker[1][0] === fence.marker[0] && marker[1].length >= fence.marker.length) fence = null; }
-    else if (marker) fence = { marker: marker[1], depth: prefix.depth };
+    else if (marker) fence = { marker: marker[1], depth: prefix.depth, listScope: scopes.at(-1) };
   }
   return { contexts, groups };
 }

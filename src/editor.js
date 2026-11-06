@@ -13,6 +13,8 @@ import { CodeHighlighter, languageLabel } from './code-client.js';
 import { mountCodeUI } from './code-ui.js';
 import { blankGeometry } from './spacing.js';
 import { enterQuote } from './quote-commands.js';
+import { enterList } from './list-commands.js';
+import { projectListLine, listInset } from './lists.js';
 
 const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
 export function mountCanvasEditor({ markdown = '', parent = document.body, embedded = false, onChange = () => {},
@@ -345,7 +347,7 @@ export function mountCanvasEditor({ markdown = '', parent = document.body, embed
   }
   function layoutKey(i, raw) {
     const line = model.doc.line(i + 1);
-    const cursor = raw && (rows[i].calloutHeader || ['table', 'heading', 'rule', 'code-fence'].includes(rows[i].type) || line.text.includes('$')) ? `:${model.head - line.from}:${model.anchor - line.from}` : '';
+    const cursor = raw && (rows[i].list || rows[i].calloutHeader || ['table', 'heading', 'rule', 'code-fence'].includes(rows[i].type) || line.text.includes('$')) ? `:${model.head - line.from}:${model.anchor - line.from}` : '';
     return `${i}:${raw}:${rows[i].revision}${cursor}${i === tableToolbarStart ? ':tools' : ''}`;
   }
   function clearCalloutCache() {
@@ -356,7 +358,12 @@ export function mountCanvasEditor({ markdown = '', parent = document.body, embed
     const group = rows[i]?.callouts?.[0];
     if (!nativeCallouts || !group || [...rawSet].some(line => line >= group.start && line <= group.end)) return null;
     let entry = calloutCache.get(group.id);
-    const markdown = entry?.doc === model.doc ? entry.markdown : model.doc.sliceString(model.doc.line(group.start + 1).from, model.doc.line(group.end + 1).to);
+    const markdown = entry?.doc === model.doc ? entry.markdown : Array.from({ length: group.end - group.start + 1 }, (_, n) => {
+      const index = group.start + n, text = model.doc.line(index + 1).text;
+      return group.listDepth ? projectListLine(text, rows[index].listRanges, group.listDepth).text : text;
+    }).join('\n');
+    const inset = group.listDepth ? listInset(rows[group.start].list, typography, fontSize, group.listDepth) : 0;
+    const previewWidth = Math.max(24, contentWidth - inset);
     const folded = rows.calloutGroups.filter(g => g.start >= group.start && g.end <= group.end && collapsed(g) && !openCallouts.has(g.id)).map(g => g.start - group.start);
     const key = `${contentWidth}:${dpr}:${assetEpoch}:${folded.join(',')}:${markdown}`;
     if (entry?.key !== key) {
@@ -369,14 +376,14 @@ export function mountCanvasEditor({ markdown = '', parent = document.body, embed
       }
       if (!entry && calloutCache.size >= 8) return null;
       if (entry?.image) { calloutBytes -= entry.bytes; entry.image.width = entry.image.height = 0; }
-      entry = { key, status: 'pending', group, doc: model.doc, markdown }; calloutCache.delete(group.id); calloutCache.set(group.id, entry);
+      entry = { key, status: 'pending', group, doc: model.doc, markdown, inset, width: previewWidth }; calloutCache.delete(group.id); calloutCache.set(group.id, entry);
       const pending = entry;
       while (calloutCache.size > 8) {
         const [id, old] = calloutCache.entries().next().value;
         if (old.image) { calloutBytes -= old.bytes; old.image.width = old.image.height = 0; }
         calloutCache.delete(id);
       }
-      nativeCallouts.render({ markdown, width: contentWidth, folded, pixelRatio: dpr,
+      nativeCallouts.render({ markdown, width: previewWidth, folded, pixelRatio: dpr,
         valid: () => !disposed && calloutCache.get(group.id) === pending }).then(result => {
         if (disposed || calloutCache.get(group.id) !== pending) { result.image.width = result.image.height = 0; return; }
         const bytes = result.image.width * result.image.height * 4;
@@ -406,6 +413,12 @@ export function mountCanvasEditor({ markdown = '', parent = document.body, embed
       const sliceTop = entry.starts[index], sliceHeight = entry.starts[index + 1] - sliceTop;
       const value = { height: Math.max(.01, sliceHeight) + documentTop, lines: [], top: documentTop, lineHeight: fontSize * 1.7,
         nativeCallout: entry, sliceTop, sliceHeight, documentTop };
+      if (rows[i].list?.first && rows[i].calloutHeader) {
+        const markerLayout = layoutSourceLine(ctx, model.doc.line(i + 1).text, rows[i], { width: contentWidth, raw: false,
+          font, size: fontSize, typography, calloutTheme, asset: () => null, measure: (font, text) => { ctx.font = font; return ctx.measureText(text).width; } });
+        value.nativeMarkers = markerLayout.lines.map(line => ({ ...line, pieces: line.pieces.filter(p => p.listMarker)
+          .map(p => ({ ...p, x: entry.inset - fontSize * .45 - p.width })) }));
+      }
       heights.update(i, value.height); layouts.set(key, value); return value;
     }
     const formula = rows[i].type === 'math-tail' ? rows[rows[i].start] : null;
@@ -478,12 +491,15 @@ export function mountCanvasEditor({ markdown = '', parent = document.body, embed
         /^\s*[| :\-]+$/.test(model.doc.line(change.first + 1).text)) rebuild();
     else {
       const i = change.first, old = rows[i];
-      const next = classifyLines({ lines: 1, line: () => ({ text: model.doc.line(i + 1).text.slice(old.sourceOffset || 0) }) }, { parseImage: images?.parse })[0];
+      const currentText = model.doc.line(i + 1).text;
+      const projection = old.listProjection ? projectListLine(currentText, old.listRanges) : null;
+      const next = classifyLines({ lines: 1, line: () => ({ text: projection ? projection.text.slice(old.projectedSourceOffset || 0) : currentText.slice(old.sourceOffset || 0) }) }, { parseImage: images?.parse })[0];
       if (!['code', 'table'].includes(old.type) && (next.type !== old.type || next.level !== old.level || next.list && !old.list)) rebuild();
       else {
-        rows[i] = ['code', 'table'].includes(old.type) ? { ...old, revision: old.revision + 1 } : {
+        rows[i] = ['code', 'table'].includes(old.type) ? { ...old, listProjection: projection, revision: old.revision + 1 } : {
           ...next, sourceLine: old.sourceLine, sourceOffset: old.sourceOffset, callouts: old.callouts, revision: old.revision + 1,
-          paragraphStart: old.paragraphStart, paragraphEnd: old.paragraphEnd, previousBlock: old.previousBlock, emptyParagraph: old.emptyParagraph, list: old.list };
+          paragraphStart: old.paragraphStart, paragraphEnd: old.paragraphEnd, previousBlock: old.previousBlock, emptyParagraph: old.emptyParagraph, list: old.list,
+          listProjection: projection, listRanges: old.listRanges, projectedSourceOffset: old.projectedSourceOffset };
         heights.update(i, estimate(i, true));
       }
     }
@@ -559,7 +575,11 @@ export function mountCanvasEditor({ markdown = '', parent = document.body, embed
         if (value.sliceHeight > 0 && value.nativeCallout.image.width) {
           const entry = value.nativeCallout;
           ctx.drawImage(entry.image, 0, value.sliceTop * entry.ratio, entry.image.width, value.sliceHeight * entry.ratio,
-            left, y + value.documentTop, contentWidth, value.sliceHeight); drawnNativeCallouts++;
+            left + entry.inset, y + value.documentTop, entry.width, value.sliceHeight); drawnNativeCallouts++;
+          for (const visual of value.nativeMarkers || []) for (const p of visual.pieces) {
+            ctx.font = p.font; ctx.fillStyle = p.color || drawColor;
+            ctx.fillText(p.text, left + p.x, y + value.documentTop + (entry.titleBaseline ?? visual.top + visual.baseline));
+          }
           if (line.from < model.to && line.to > model.from || hits.includes(i)) {
             ctx.fillStyle = hits.includes(i) ? '#e9b94933' : '#609bf133'; ctx.fillRect(left, y, contentWidth, value.height);
           }
@@ -571,8 +591,8 @@ export function mountCanvasEditor({ markdown = '', parent = document.body, embed
         ctx.fillStyle = codeStyle.background || '#8997b318'; ctx.fillRect(left + inset - 8, y + top, contentWidth - inset + 16, value.height - top);
       }
       if (value.rule) { ctx.fillStyle = value.rule.color; ctx.fillRect(left + (value.inset || 0), y + value.rule.y, contentWidth - (value.inset || 0), Math.max(1, value.rule.width)); }
-      if (row.type === 'quote' && !row.callouts.length) { ctx.fillStyle = '#7393bd'; ctx.fillRect(left - 10, y, 3, value.height); }
-      let calloutX = 0;
+      if (row.type === 'quote' && !row.callouts.length) { ctx.fillStyle = '#7393bd'; ctx.fillRect(left + (value.listIndent || 0) - 10, y, 3, value.height); }
+      let calloutX = row.callouts[0]?.listDepth ? listInset(rows[row.callouts[0].start].list, typography, fontSize, row.callouts[0].listDepth) : 0;
       for (const group of row.callouts) {
         const spec = calloutSpec(calloutTheme, group.type), topGap = group.start === i ? value.calloutTopGap || 0 : 0;
         const bottomGap = group.end === i ? value.calloutBottomGap || 0 : 0;
@@ -661,9 +681,10 @@ export function mountCanvasEditor({ markdown = '', parent = document.body, embed
     const i = heights.find(Math.max(0, y));
     const value = layout(i), line = model.doc.line(i + 1);
     if (value.nativeCallout) {
-      if (rows[i].calloutHeader && x <= left + 38) return line.from + line.text.indexOf('[!') + 2;
+      const inset = value.nativeCallout.inset;
+      if (rows[i].calloutHeader && x <= left + inset + 38) return line.from + line.text.indexOf('[!') + 2;
       const contentStart = rows[i].calloutHeader?.titleFrom ?? rows[i].sourceOffset ?? 0;
-      return line.from + Math.min(line.text.length, contentStart + Math.max(0, Math.round((x - left - 16) / (fontSize * .8))));
+      return line.from + Math.min(line.text.length, contentStart + Math.max(0, Math.round((x - left - inset - 16) / (fontSize * .8))));
     }
     return line.from + hitSource(value, x - left, y - heights.prefix(i), line.text.length);
   }
@@ -701,7 +722,8 @@ export function mountCanvasEditor({ markdown = '', parent = document.body, embed
     const i = heights.find(Math.max(0, y)), value = layout(i);
     if (['code', 'code-fence', 'math', 'math-tail'].includes(rows[i].type)) return null;
     if (value.nativeCallout) {
-      const target = value.nativeCallout.links?.find(link => x - left >= link.x && x - left <= link.x + link.width &&
+      const localX = x - left - value.nativeCallout.inset;
+      const target = value.nativeCallout.links?.find(link => localX >= link.x && localX <= link.x + link.width &&
         y - heights.prefix(i) + value.sliceTop - value.documentTop >= link.y &&
         y - heights.prefix(i) + value.sliceTop - value.documentTop <= link.y + link.height);
       if (target) return target.href;
@@ -828,7 +850,7 @@ export function mountCanvasEditor({ markdown = '', parent = document.body, embed
         return;
       }
       if (!mod && !event.altKey && !event.shiftKey) {
-        const change = enterQuote(model, rows);
+        const change = enterList(model, rows) || enterQuote(model, rows);
         if (change) { event.preventDefault(); wantedX = null; changed(change); return; }
       }
     }

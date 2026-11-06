@@ -4,7 +4,7 @@ import { defaultCalloutTheme, calloutSpec } from './callouts.js';
 import { displayMathGeometry } from './math-geometry.js';
 import { inlineSourceRuns } from './inline-source.js';
 import { blankGeometry } from './spacing.js';
-import { listMarker } from './lists.js';
+import { listMarker, listStyles } from './lists.js';
 export const editorFont = '"Segoe UI", "Microsoft YaHei", sans-serif';
 
 // Inactive lines elide common Markdown markers; the active source line is exact.
@@ -46,6 +46,25 @@ export function sourceRuns(text, row, raw, cursor = -1, selection = null) {
 
 export function layoutSourceLine(ctx, text, row, { width, raw, font = editorFont, size = 17, asset, measure, cursor = -1,
   selection = null, calloutTheme = defaultCalloutTheme(), typography = {}, codeStyle = {}, imageLayout = null }) {
+  const emptyList = row.list?.first && !text.slice(row.list.originalContentFrom).trim() &&
+    (cursor >= row.list.originalContentFrom || !row.list.ordered && cursor >= row.list.originalMarkerFrom + 1) &&
+    (!selection || selection.from === selection.to);
+  if (row.listProjection && (!raw || emptyList)) {
+    const projection = row.listProjection;
+    const callouts = row.callouts.map(g => ({ ...g, titleFrom: g.projectedTitleFrom ?? g.titleFrom }));
+    const projected = { ...row, listProjection: null, sourceOffset: row.projectedSourceOffset || 0,
+      callouts, calloutHeader: row.calloutHeader ? callouts.find(g => g.id === row.calloutHeader.id) : null,
+      list: { ...row.list, contentFrom: 0, markerFrom: 0 } };
+    const value = layoutSourceLine(ctx, projection.text, projected, { width, raw: false, font, size, asset, measure,
+      cursor: -1, calloutTheme, typography, codeStyle, imageLayout });
+    const map = n => projection.map[Math.max(0, Math.min(projection.map.length - 1, n))];
+    for (const line of value.lines) for (const p of line.pieces) {
+      p.from = p.listMarker ? row.list.originalMarkerFrom : map(p.from);
+      p.to = p.listMarker ? row.list.originalContentFrom : map(p.to);
+    }
+    if (value.cells) for (const cell of value.cells) { cell.from = map(cell.from); cell.to = map(cell.to); }
+    return value;
+  }
   if (row.callouts?.length) {
     const group = row.callouts.at(-1), spec = calloutSpec(calloutTheme, group.type), header = row.calloutHeader;
     const editingHeader = !!header && raw;
@@ -80,11 +99,7 @@ export function layoutSourceLine(ctx, text, row, { width, raw, font = editorFont
     return value;
   }
   if (row.list && !raw) {
-    const list = row.list, paths = list.path.split('/');
-    const styles = paths.map((tag, i) => typography.lists?.[paths.slice(0, i + 1).join('/')]
-      || typography.lists?.[paths.slice(Math.max(0, i - 2), i + 1).join('/')] || {
-      paddingLeft: size * 2, marginLeft: 0, marginTop: 0, marginBottom: 0,
-      item: typography.paragraph || {}, marker: {}, listStyleType: tag === 'ol' ? 'decimal' : ['disc', 'circle', 'square'][i % 3] });
+    const list = row.list, styles = listStyles(list, typography, size);
     const spec = styles.at(-1), item = spec.item || typography.paragraph || {};
     const style = list.loose ? spec.paragraph || item : item;
     const label = list.first ? listMarker(list, spec.listStyleType) : '';
@@ -98,7 +113,7 @@ export function layoutSourceLine(ctx, text, row, { width, raw, font = editorFont
     const bottom = list.groups.reduce((sum, g, i) => sum + (g.end === row.sourceLine ? styles[i].marginBottom || 0 : 0), 0)
       + (row.sourceLine === list.end ? (item.paddingBottom || 0) + (item.marginBottom || 0) : 0)
       + (list.loose && list.paragraphEnd ? style.marginBottom || 0 : 0);
-    const value = layoutSourceLine(ctx, text.slice(list.contentFrom), { ...row, list: null, type: 'paragraph',
+    const value = layoutSourceLine(ctx, text.slice(list.contentFrom), { ...row, list: null,
       paragraphStart: false, paragraphEnd: false }, { width: Math.max(24, width - indent), raw: false,
       font, size, asset, measure, typography: { ...typography, paragraph: { ...style, marginTop: 0, marginBottom: 0, paddingTop: 0, paddingBottom: 0 } },
       codeStyle, imageLayout });
@@ -106,6 +121,13 @@ export function layoutSourceLine(ctx, text, row, { width, raw, font = editorFont
       line.top += top;
       for (const piece of line.pieces) { piece.x += indent; piece.from += list.contentFrom; piece.to += list.contentFrom; }
     }
+    if (value.cells) for (const cell of value.cells) { cell.x += indent; cell.from += list.contentFrom; cell.to += list.contentFrom; }
+    if (value.media) value.mediaX = (value.mediaX || 0) + indent;
+    value.inset = (value.inset || 0) + indent;
+    if (value.calloutTitle) value.calloutTitle.x += indent;
+    if (list.first && !text.slice(list.contentFrom).trim() && value.lines.length) value.lines[0].pieces.push({
+      text: '', from: list.contentFrom, to: list.contentFrom, x: indent, width: 0, font: markerFont });
+    if (label && !value.lines.length) value.lines.push({ pieces: [], top: value.top, height: value.lineHeight, baseline: value.lineHeight * .8 });
     if (label && value.lines.length) value.lines[0].pieces.unshift({ text: label, from: list.markerFrom, to: list.contentFrom,
       x: indent - gap - markerWidth, width: markerWidth, font: markerFont, color: markerStyle.color, listMarker: true });
     value.height += top + bottom; value.top += top;

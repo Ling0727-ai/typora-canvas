@@ -2,7 +2,7 @@ import { Text } from '@codemirror/state';
 import { calloutContexts } from './callouts.js';
 import { classifyBlocks } from './blocks.js';
 import { markBlankSpacing } from './spacing.js';
-import { markLists } from './lists.js';
+import { markLists, scanLists } from './lists.js';
 
 // Immutable rope snapshots preserve Markdown verbatim, including unknown syntax
 // and existing CRLF. No rich-text-to-Markdown serialization is involved.
@@ -69,7 +69,10 @@ export function inputDiff(before, after) {
 }
 
 export function classifyLines(doc, { customCallouts = true, parseImage } = {}) {
-  const { contexts, groups } = calloutContexts(doc, { customEnabled: customCallouts });
+  const scan = scanLists(doc);
+  const projectedDoc = scan ? { lines: doc.lines, line: number => ({ text: scan.projections[number - 1].text }) } : doc;
+  const { contexts, groups } = calloutContexts(projectedDoc, { customEnabled: customCallouts, listScopes: scan?.metadata.map(item => item?.ancestors || []) });
+  if (scan) contexts.forEach((context, i) => { context.listScopes = scan.metadata[i]?.ancestors || []; });
   const texts = contexts.map(c => c.content);
   const rows = classifyBlocks(contexts, { parseImage });
   for (let i = 0; i < rows.length - 1; i++) {
@@ -89,7 +92,21 @@ export function classifyLines(doc, { customCallouts = true, parseImage } = {}) {
     i = end - 1;
   }
   rows.calloutGroups = groups;
-  markLists(doc, rows);
+  if (scan) {
+    for (const group of groups) {
+      group.projectedTitleFrom = group.titleFrom;
+      group.titleFrom = scan.projections[group.start].map[group.titleFrom];
+      group.listDepth = (scan.metadata[group.start]?.depth ?? -1) + 1;
+    }
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i], projection = scan.projections[i];
+      row.projectedSourceOffset = row.sourceOffset;
+      row.sourceOffset = row.sourceOffset ? projection.map[row.sourceOffset - 1] + 1 : 0;
+      row.content = doc.line(i + 1).text.slice(row.sourceOffset);
+      if (row.languageFrom !== undefined) row.languageFrom = projection.map[row.languageFrom];
+    }
+    markLists(doc, rows, scan);
+  }
   markBlankSpacing(rows);
   let previous = null;
   for (let i = 0; i < rows.length; i++) {

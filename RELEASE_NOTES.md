@@ -6,7 +6,7 @@ Prebuilt Typora Canvas plugin and npm installer. No local compilation is require
 
 The npm CLI provides help, version, backup, install/update and disable (`--uninstall`) commands. Installing the npm package only makes the CLI available; run it explicitly to deploy to Typora.
 
-This release fixes unordered and ordered list rendering in the pure Canvas editor: semantic bullets and sequential numbering, mixed nesting, continuation lines, hanging indentation, theme typography and `::marker` colors/styles, and accurate editing/source hit testing. Ordinary list text input preserves the incremental edit path. New unit and browser regressions cover nesting, CRLF, inline math, wrapping, undo and theme changes.
+This release fixes empty bullet items and list editing in the pure Canvas editor. Enter continues/splits items, exits empty items and renumbers only the current list's following siblings in one undo step. Decimal/parenthesized, alphabetic and Roman counters are supported. Multi-level ordered/unordered nesting works in quotes and Callouts; list items can contain code fences, quotes and native-plugin Callout previews. Marker-width changes preserve nested indentation. Tests cover source mapping, CRLF, undo/redo, scoped numbering, nested block rendering, code highlighting, formulas and theme changes.
 
 Windows, macOS and Linux CI validate unit tests, builds, packaged npm installation and Chromium regressions before publication. The same JavaScript payload is used on all three systems; separate native binaries are not needed. Real Typora integration has primarily been tested on Windows 1.14. The upstream plugin framework documents Windows/Linux installation; macOS host installation remains unverified.
 

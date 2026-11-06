@@ -3,7 +3,8 @@ import { parseImageSource } from './images.js';
 export function classifyBlocks(contexts, { parseImage = parseImageSource } = {}) {
   const rows = [], codes = [];
   let code = null, math = null;
-  const sameScope = (block, context) => !block.group || context.callouts.some(g => g.id === block.group);
+  const sameScope = (block, context) => (!block.group || context.callouts.some(g => g.id === block.group)) &&
+    (block.listItem === undefined || context.listScopes?.includes(block.listItem));
   function finishCode(end) {
     code.end = end;
     for (let i = code.start; i <= end; i++) Object.assign(rows[i], { codeStart: code.start, codeEnd: end, language: code.language });
@@ -23,7 +24,7 @@ export function classifyBlocks(contexts, { parseImage = parseImageSource } = {})
     } else if (fence) {
       const info = fence[3].trim(), language = info.split(/\s/, 1)[0];
       const languageFrom = context.sourceOffset + fence[1].length + fence[2].length + (fence[3].length - fence[3].trimStart().length);
-      code = { start: i, end: i, marker: fence[2], language, languageFrom, group: context.callouts.at(-1)?.id };
+      code = { start: i, end: i, marker: fence[2], language, languageFrom, group: context.callouts.at(-1)?.id, listItem: context.listScopes?.at(-1) };
       Object.assign(row, { type: 'code-fence', codeHeader: true, codeStart: i, language, languageFrom });
     } else if (math) {
       const close = math.bracket ? /\\\]\s*$/ : /(?<!\\)\$\$\s*$/;
@@ -43,7 +44,7 @@ export function classifyBlocks(contexts, { parseImage = parseImageSource } = {})
         const bracket = open[1] !== '$$', close = bracket ? /\\\]\s*$/ : /(?<!\\)\$\$\s*$/;
         const ending = close.exec(open[2]);
         if (ending) Object.assign(row, { type: 'math', tex: open[2].slice(0, ending.index).trim(), end: i });
-        else { row.type = 'math'; math = { start: i, parts: [open[2]], bracket, group: context.callouts.at(-1)?.id }; }
+        else { row.type = 'math'; math = { start: i, parts: [open[2]], bracket, group: context.callouts.at(-1)?.id, listItem: context.listScopes?.at(-1) }; }
       } else if (!text.trim()) row.type = 'blank';
       else if (/^\s{0,3}(?:(?:-\s*){3,}|(?:_\s*){3,}|(?:\*\s*){3,})$/.test(text)) row.type = 'rule';
       else if (image) Object.assign(row, { type: 'image', ...image });
