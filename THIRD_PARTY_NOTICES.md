@@ -13,6 +13,11 @@ This project does not modify that plugin or its repository. The test fixtures
 project; the plugin patch is based on obgnail/typora_plugin 1.19.14 (MIT,
 copyright 2023 obgnail).
 
+The optional image adapter reuses the installed `obsidian_images` module from the
+same project for syntax, vault attachment resolution and CSS decoration. The test
+fixture `test/fixtures/obsidian-images-plugin.cjs` and standalone wiki image grammar
+are adapted from its MIT-licensed patch, copyright (c) 2026 Ling0727-ai.
+
 Code highlighting uses highlight.js 11.12.0 (BSD-3-Clause), copyright 2006 Ivan
 Sagalaev and highlight.js contributors. The full notice is in
 `licenses/highlight.js.BSD-3-Clause.txt`.

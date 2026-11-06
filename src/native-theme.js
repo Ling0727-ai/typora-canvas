@@ -12,6 +12,21 @@ function textStyle(node) {
     lineHeight: px(s.lineHeight, fontSize * 1.7), marginTop: px(s.marginTop), marginBottom: px(s.marginBottom),
     paddingTop: px(s.paddingTop), paddingBottom: px(s.paddingBottom), paddingLeft: px(s.paddingLeft), paddingRight: px(s.paddingRight) };
 }
+function inlineStyles(node) {
+  const doc = node.ownerDocument, inline = {}, ordinary = textStyle(node);
+  for (const [key, html] of Object.entries({ strong: '<strong>Text</strong>', em: '<em>Text</em>',
+    strongEm: '<strong><em>Text</em></strong>', code: '<code>Text</code>', link: '<a href="#">Text</a>' })) {
+    const wrapper = doc.createElement('span'); wrapper.innerHTML = html; node.append(wrapper);
+    const leaf = wrapper.querySelector(key === 'strongEm' ? 'em' : '*'), sampled = textStyle(leaf), changes = {};
+    // Record overrides within the actual block context, rather than copying
+    // paragraph inheritance onto a differently styled heading or table cell.
+    for (const property of ['color', 'fontFamily', 'fontWeight', 'fontStyle'])
+      if (sampled[property] !== ordinary[property]) changes[property] = sampled[property];
+    if (sampled.fontSize !== ordinary.fontSize) changes.fontSizeScale = sampled.fontSize / ordinary.fontSize;
+    inline[key] = changes; wrapper.remove();
+  }
+  return inline;
+}
 
 // Short-lived, empty semantic probes sample CSS selectors (including tr:nth-child
 // and CodeMirror token classes). They never replace or rasterize the document.
@@ -24,7 +39,10 @@ export function readNativeStyles(write) {
   };
   try {
     const paragraph = append('p'); paragraph.textContent = 'Text';
-    const headings = Array.from({ length: 6 }, (_, i) => { const h = append(`h${i + 1}`); h.textContent = 'Heading'; return textStyle(h); });
+    const inline = inlineStyles(paragraph);
+    const headings = Array.from({ length: 6 }, (_, i) => {
+      const h = append(`h${i + 1}`); h.textContent = 'Heading'; return { ...textStyle(h), inline: inlineStyles(h) };
+    });
     const hr = append('hr'), rule = getComputedStyle(hr);
     const table = append('table');
     table.innerHTML = '<thead><tr><th>Header</th></tr></thead><tbody><tr><td>Odd</td></tr><tr><td>Even</td></tr></tbody>';
@@ -43,7 +61,8 @@ export function readNativeStyles(write) {
     const root = getComputedStyle(write);
     return { container: { maxWidth: px(root.maxWidth, 948), paddingTop: px(root.paddingTop), paddingBottom: px(root.paddingBottom, 48),
       paddingLeft: px(root.paddingLeft, 24), paddingRight: px(root.paddingRight, 24) },
-      typography: { paragraph: textStyle(paragraph), headings, tableHeader: textStyle(th), tableCell: textStyle(odd),
+      typography: { paragraph: { ...textStyle(paragraph), inline }, headings, inline,
+        tableHeader: { ...textStyle(th), inline: inlineStyles(th) }, tableCell: { ...textStyle(odd), inline: inlineStyles(odd) },
         rule: { color: px(rule.borderTopWidth) ? rule.borderTopColor : rule.color,
           width: px(rule.borderTopWidth, 1), marginTop: px(rule.marginTop, 16), marginBottom: px(rule.marginBottom, 16) } },
       table: { background: getComputedStyle(table).backgroundColor,

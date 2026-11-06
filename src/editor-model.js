@@ -66,10 +66,10 @@ export function inputDiff(before, after) {
   return { from, to: oldEnd, text: after.slice(from, newEnd) };
 }
 
-export function classifyLines(doc, { customCallouts = true } = {}) {
+export function classifyLines(doc, { customCallouts = true, parseImage } = {}) {
   const { contexts, groups } = calloutContexts(doc, { customEnabled: customCallouts });
   const texts = contexts.map(c => c.content);
-  const rows = classifyBlocks(contexts);
+  const rows = classifyBlocks(contexts, { parseImage });
   for (let i = 0; i < rows.length - 1; i++) {
     if (rows[i].type !== 'paragraph' || rows[i + 1].type !== 'paragraph') continue;
     if (rows[i].callouts.at(-1)?.id !== rows[i + 1].callouts.at(-1)?.id) continue;

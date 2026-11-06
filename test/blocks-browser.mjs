@@ -34,9 +34,13 @@ export async function testBlocksAndTheme(page) {
   const canvas = page.locator('[data-typora-canvas-editor]').locator('canvas');
   await page.screenshot({ path: 'test-output/blocks-theme-light.png' });
   const pixel = async (line, expected) => {
-    const rect = await page.evaluate(i => window.pure.getLineRect(i), line);
-    const actual = await canvas.evaluate((el, rect) => [...el.getContext('2d').getImageData(Math.round(rect.x + rect.width - 15), Math.round(rect.y + rect.height - 5), 1, 1).data], rect);
-    assert.deepEqual(actual, [...expected, 255], JSON.stringify({ line, rect, tableTheme: (await page.evaluate(() => window.pure.getStats())).tableTheme }));
+    // Theme state changes before asynchronous formula decode/layout/paint.
+    // Read geometry and pixels in the same task, waiting for actual paint.
+    await page.waitForFunction(({ line, expected }) => {
+      const rect = window.pure.getLineRect(line), el = window.pure.host.shadowRoot.querySelector('canvas');
+      const actual = [...el.getContext('2d').getImageData(Math.round(rect.x + rect.width - 15), Math.round(rect.y + rect.height - 5), 1, 1).data];
+      return actual.every((value, i) => value === [...expected, 255][i]);
+    }, { line, expected }, { timeout: 5000 });
   };
   await pixel(19, [220, 234, 246]); await pixel(22, [237, 242, 247]);
   await page.screenshot({ path: 'test-output/blocks-theme-light.png' });

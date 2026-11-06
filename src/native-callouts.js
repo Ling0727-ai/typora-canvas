@@ -5,7 +5,7 @@ import { displayMathGeometry } from './math-geometry.js';
 
 // Run a second, unregistered instance of the installed plugin with scoped
 // entities. Its lifecycle/hotkeys never run and its original instance is intact.
-export function createNativeCalloutRenderer({ write, plugin }) {
+export function createNativeCalloutRenderer({ write, plugin, images = null }) {
   if (!write || !plugin?.constructor || typeof plugin.setCallouts !== 'function') return null;
   const doc = write.ownerDocument, formulas = new FormulaEngine();
   const instance = new plugin.constructor(plugin.fixedName, plugin.config, plugin.i18n);
@@ -17,6 +17,23 @@ export function createNativeCalloutRenderer({ write, plugin }) {
   instance.utils = Object.create(plugin.utils);
   Object.defineProperty(instance.utils, 'entities', { value: entities });
   const md = new MarkdownIt({ html: false, breaks: false, linkify: false });
+  if (images) md.inline.ruler.before('image', 'canvas_wiki_image', (state, silent) => {
+    const image = images.parseWiki(state.src.slice(state.pos));
+    if (!image) return false;
+    if (!silent) {
+      const token = state.push('image', 'img', 0); token.attrs = [['src', image.file], ['alt', image.file]];
+      token.meta = { obsidianImage: { ...image, obsidian: true } }; token.children = [];
+    }
+    state.pos += image.raw.length; return true;
+  });
+  const imageRule = md.renderer.rules.image;
+  md.renderer.rules.image = (tokens, i, options, env, renderer) => {
+    const html = imageRule(tokens, i, options, env, renderer), spec = tokens[i].meta?.obsidianImage;
+    if (!spec) return html;
+    const template = doc.createElement('template'); template.innerHTML = html;
+    const img = images.decorate(template.content.querySelector('img'), spec);
+    img.dataset.tcImage = JSON.stringify(spec); return img.outerHTML;
+  };
   const mathHtml = (tex, display) => `<span data-tc-math="${md.utils.escapeHtml(tex)}" data-display="${display}"></span>`;
   md.inline.ruler.before('escape', 'canvas_math', (state, silent) => {
     const start = state.pos;
@@ -101,6 +118,16 @@ export function createNativeCalloutRenderer({ write, plugin }) {
       }
       instance.setCallouts();
       if (!stage.querySelector('.plugin-callout')) throw new Error('Installed Callout plugin did not decorate the preview');
+      await Promise.all([...stage.querySelectorAll('img')].map(async img => {
+        const spec = img.dataset.tcImage ? JSON.parse(img.dataset.tcImage) : {};
+        const source = img.getAttribute('src');
+        if (images) img.src = await images.resolve(source, spec);
+        if (!img.complete) await new Promise((resolve, reject) => {
+          const timer = setTimeout(() => { cleanup(); reject(new Error('Callout image loading timed out')); }, 10000);
+          const cleanup = () => { clearTimeout(timer); img.onload = img.onerror = null; };
+          img.onload = () => { cleanup(); resolve(); }; img.onerror = () => { cleanup(); resolve(); };
+        });
+      }));
       for (const block of stage.querySelectorAll('.plugin-callout')) {
         const line = Number(block.getAttribute('data-tc-line'));
         block.classList.toggle('callout-folded', folded.includes(line));

@@ -6,6 +6,23 @@ import { attachCanvasHost } from '../src/host-bridge.js';
 import { formulaSvg } from '../src/formula.js';
 import { readFileSync } from 'node:fs';
 
+test('emphasis recursively preserves equations and their exact source ranges', () => {
+  for (const source of ['**$a$**', '__$a_{b}$__', '*$a*b$*', '***$x$***', '**前 $a$ 与 *$b$* 后**', '[**$a$**](note.md)']) {
+    const runs = sourceRuns(source, { type: 'paragraph' }, false), formulas = runs.filter(r => r.tex);
+    assert.ok(formulas.length > 0, source);
+    for (const r of formulas) assert.equal(source.slice(r.from, r.to), `$${r.tex}$`);
+    assert.ok(formulas.every(r => r.bold || r.italic), source);
+    const rendered = layoutSourceLine({ font: '' }, source, { type: 'paragraph' }, { width: 400, raw: false,
+      asset: () => ({ image: {}, width: 12, height: 17 }), measure: (_, value) => value.length * 10 });
+    const piece = rendered.lines.flatMap(l => l.pieces).find(p => p.media);
+    assert.equal(hitSource(rendered, piece.x + 1, rendered.lines[0].top + 1, source.length), piece.from + 1);
+  }
+  assert.equal(sourceRuns('`**$a$**`', { type: 'paragraph' }, false).some(r => r.tex), false);
+  const active = sourceRuns('**$a$**', { type: 'paragraph' }, true, 4);
+  assert.equal(active.some(r => r.tex), false);
+  assert.equal(active.map(r => r.text).join(''), '**$a$**');
+});
+
 test('the fatigue derivation groups all multiline formulas and retains literal source on failure', () => {
   const source = readFileSync(new URL('./fixtures/fatigue-math.md', import.meta.url), 'utf8');
   const doc = new CanvasDocument(source).doc, rows = classifyLines(doc);

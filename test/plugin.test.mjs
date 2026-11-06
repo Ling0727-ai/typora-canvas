@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
+import { createRequire } from 'node:module';
+const requireBuiltin = createRequire(import.meta.url);
 
 const code = await readFile(new URL('../plugin/canvas_reader.cjs', import.meta.url), 'utf8');
 function harness(config = { RENDER_MODE: 'canvas' }) {
@@ -16,6 +18,7 @@ function harness(config = { RENDER_MODE: 'canvas' }) {
     setInterval: callback => { state.poll = callback; return 1; }, clearInterval() {},
     File: { editor: { sourceView: { inSourceMode: false } } },
     BasePlugin: class {}, require: name => {
+      if (['fs', 'path', 'url'].includes(name)) return requireBuiltin(name);
       assert.equal(name, './canvas_reader/runtime.cjs');
       const mount = options => {
         if (state.failMount) throw new Error('Canvas unavailable');
@@ -23,7 +26,7 @@ function harness(config = { RENDER_MODE: 'canvas' }) {
         return { destroy: () => state.destroyed++, invalidate: () => state.invalidated++ };
       };
       return { mountReader: mount, mountHybrid: mount, mountCanvasEditor: mount,
-        createNativeCalloutRenderer: () => null, readCanvasTheme: () => ({}),
+        createNativeCalloutRenderer: () => null, createImageAdapter: () => ({}), readCanvasTheme: () => ({}),
         attachCanvasHost: () => ({ changed: () => state.changed = true, detach: () => state.saveDetached = true }),
         attachCanvasNavigation: options => {
           state.navigationOptions = options;

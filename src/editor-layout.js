@@ -2,7 +2,7 @@ const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
 import { tableCells } from './editor-model.js';
 import { defaultCalloutTheme, calloutSpec } from './callouts.js';
 import { displayMathGeometry } from './math-geometry.js';
-import { sourceLinks } from './navigation.js';
+import { inlineSourceRuns } from './inline-source.js';
 export const editorFont = '"Segoe UI", "Microsoft YaHei", sans-serif';
 
 // Inactive lines elide common Markdown markers; the active source line is exact.
@@ -39,35 +39,14 @@ export function sourceRuns(text, row, raw, cursor = -1, selection = null) {
   let start = 0;
   const prefix = /^(#{1,6}\s+|\s*>\s?)/.exec(text);
   if (prefix) start = prefix[0].length;
-  const runs = [];
-  const links = sourceLinks(text);
-  const pattern = /\*\*([^*]+)\*\*|__([^_]+)__|`([^`]+)`|\*([^*]+)\*|\[([^\]]+)\]\(([^)]+)\)|\$([^$\n]+)\$|(<[bB][rR]\s*\/?>)/g;
-  let consumed = start, match;
-  pattern.lastIndex = start;
-  while ((match = pattern.exec(text))) {
-    if (match.index > consumed) runs.push({ text: text.slice(consumed, match.index), from: consumed, to: match.index });
-    if (match[8]) {
-      runs.push({ text: '', break: true, from: match.index, to: pattern.lastIndex });
-      consumed = pattern.lastIndex; continue;
-    }
-    const link = match[6] ? links.find(l => l.from === match.index) : null;
-    if (link) pattern.lastIndex = link.to;
-    const value = match[1] || match[2] || match[3] || match[4] || match[5] || match[7];
-    const offset = match[0].indexOf(value);
-    runs.push({ text: value, from: match[7] ? match.index : match.index + offset,
-      to: match[7] ? pattern.lastIndex : match.index + offset + value.length,
-      bold: !!(match[1] || match[2]), code: !!match[3], italic: !!match[4], link: link?.href || match[6], tex: match[7] });
-    consumed = pattern.lastIndex;
-  }
-  if (consumed < text.length) runs.push({ text: text.slice(consumed), from: consumed, to: text.length });
-  return runs;
+  return inlineSourceRuns(text, start);
 }
 
 export function layoutSourceLine(ctx, text, row, { width, raw, font = editorFont, size = 17, asset, measure, cursor = -1,
-  selection = null, calloutTheme = defaultCalloutTheme(), typography = {}, codeStyle = {} }) {
+  selection = null, calloutTheme = defaultCalloutTheme(), typography = {}, codeStyle = {}, imageLayout = null }) {
   if (row.callouts?.length) {
     const group = row.callouts.at(-1), spec = calloutSpec(calloutTheme, group.type), header = row.calloutHeader;
-    const editingHeader = !!header && raw && (cursor > 0 && cursor < text.length || selection?.from !== selection?.to);
+    const editingHeader = !!header && raw && (cursor >= 0 && cursor < text.length || selection?.from !== selection?.to);
     const sourceOffset = header ? editingHeader ? 0 : group.titleFrom : row.sourceOffset;
     const label = header && !editingHeader ? group.title : text.slice(sourceOffset);
     const indent = row.callouts.reduce((sum, g) => sum + calloutSpec(calloutTheme, g.type).paddingLeft + 2, 0);
@@ -77,12 +56,12 @@ export function layoutSourceLine(ctx, text, row, { width, raw, font = editorFont
     const value = layoutSourceLine(ctx, label, { ...row, type: header ? 'paragraph' : row.type,
       header: !!header, callouts: [], sourceOffset: 0, calloutWrapped: true }, {
       width: Math.max(24, width - indent - iconWidth), raw: header && !editingHeader ? false : raw,
-      font, size: header && spec.titleSize ? spec.titleSize : size, measure,
+      font, size: header && spec.titleSize ? spec.titleSize : size, measure, imageLayout,
       typography: header ? { ...typography, paragraph: { ...typography.paragraph, fontSize: spec.titleSize || size,
         fontWeight: '600', color: spec.color, marginTop: 0, marginBottom: 0 } } : typography, codeStyle,
       cursor: cursor - sourceOffset,
       selection: selection ? { from: selection.from - sourceOffset, to: selection.to - sourceOffset } : null,
-      asset: (type, source, display) => asset(type, source, display, header ? spec.color : undefined) });
+      asset: (type, source, display, color, options) => asset(type, source, display, header ? spec.color : color, options) });
     const offsetX = indent + iconWidth;
     for (const line of value.lines) {
       line.top += topGap;
@@ -133,7 +112,7 @@ export function layoutSourceLine(ctx, text, row, { width, raw, font = editorFont
       const value = layoutSourceLine(ctx, cell.text, { type: 'paragraph', tableCell: true, header: row.header }, { width: Math.max(8, cellWidth - paddingLeft - paddingRight),
         raw: editing, cursor: cursor - cell.from,
         selection: selection ? { from: selection.from - cell.from, to: selection.to - cell.from } : null,
-        font, size, asset, measure, typography, codeStyle });
+        font, size, asset, measure, typography, codeStyle, imageLayout });
       for (const line of value.lines) {
         const used = line.pieces.at(-1); const remaining = cellWidth - paddingLeft - paddingRight - (used ? used.x + used.width : 0);
         const offset = row.alignments[i] === 'right' ? remaining : row.alignments[i] === 'center' ? remaining / 2 : 0;
@@ -146,12 +125,16 @@ export function layoutSourceLine(ctx, text, row, { width, raw, font = editorFont
     return { height: Math.max(...cells.map(c => c.layout.height)) + offsetY * 2, lines, cells, cellWidth, top: 0, lineHeight, fontSize };
   }
   if (!raw && (row.type === 'image' || row.type === 'math') && (row.tex !== undefined || row.url)) {
-    const media = asset(row.type, row.tex || row.url, true);
+    const media = asset(row.type, row.tex || row.url, true, style?.color, row.type === 'image' ? row.image : { size: fontSize });
     if (media?.image) {
       if (row.type === 'math') return { ...displayMathGeometry(media, width, fontSize), lines: [], media, lineHeight, fontSize };
-      const ratio = Math.min(1, width / media.width, 1200 / media.height);
+      if (imageLayout) {
+        const geometry = imageLayout(media.image, row.image, width);
+        return { ...geometry, lines: [], media, lineHeight, fontSize };
+      }
+      const ratio = Math.min((row.image?.width || media.width) / media.width, width / media.width, 1200 / media.height);
       return { height: media.height * ratio + 24, lines: [], media, mediaWidth: media.width * ratio,
-        mediaHeight: media.height * ratio, mediaX: row.type === 'math' ? Math.max(0, (width - media.width * ratio) / 2) : 0,
+        mediaHeight: media.height * ratio, mediaX: row.image?.align === 'R' ? width - media.width * ratio : row.image?.align === 'C' ? Math.max(0, (width - media.width * ratio) / 2) : 0,
         top: 12, lineHeight, fontSize };
     }
   }
@@ -165,11 +148,13 @@ export function layoutSourceLine(ctx, text, row, { width, raw, font = editorFont
   const headingPrefix = /^(#{1,6})\s+/.exec(text);
   const effectiveRaw = row.type === 'heading' && headingPrefix && (cursor === 0 || cursor >= headingPrefix[0].length) && selection?.from === selection?.to ? false : raw;
   for (const run of sourceRuns(text.replace(/\r$/, ''), row, effectiveRaw, cursor, selection)) {
+    const inline = (style?.inline || typography.inline)?.[run.code ? 'code' : run.bold && run.italic ? 'strongEm' : run.bold ? 'strong' : run.italic ? 'em' : run.link ? 'link' : 'text'] || {};
+    const runSize = fontSize * (inline.fontSizeScale || 1), color = inline.color || style?.color;
     if (run.break) {
       pieces.push({ ...run, x, width: 0, font: `${fontSize}px ${font}` }); finish(); continue;
     }
     if (run.tex) {
-      const media = asset('math', run.tex, false);
+      const media = asset('math', run.tex, false, color, { size: runSize });
       if (media?.image) {
         const w = Math.min(width, media.width), h = media.height * w / media.width;
         if (x && x + w > width) finish();
@@ -182,14 +167,16 @@ export function layoutSourceLine(ctx, text, row, { width, raw, font = editorFont
       // silently turn $\\alpha$ into bare text \\alpha while waiting for SVG.
       run.text = `$${run.tex}$`;
     }
-    const f = `${run.italic || style?.fontStyle === 'italic' ? 'italic ' : ''}${run.bold ? '600' : style?.fontWeight || (row.type === 'heading' || row.header ? '600' : '400')} ${fontSize}px ${run.code ? codeStyle.fontFamily || 'Consolas, monospace' : style?.fontFamily || font}`;
+    const f = `${inline.fontStyle || (run.italic || style?.fontStyle === 'italic' ? 'italic' : 'normal')} ${inline.fontWeight || (run.bold ? '600' : style?.fontWeight || (row.type === 'heading' || row.header ? '600' : '400'))} ${runSize}px ${inline.fontFamily || (run.code ? codeStyle.fontFamily || 'Consolas, monospace' : style?.fontFamily || font)}`;
     ctx.font = f;
     for (const { segment, index } of graphemes.segment(run.text)) {
       const display = segment === '\t' ? '    ' : segment;
       const w = measure(f, display);
       if (x && x + w > width) finish();
+      ascent = Math.max(ascent, lineHeight * .8 * runSize / fontSize);
+      descent = Math.max(descent, lineHeight * .2 * runSize / fontSize);
       pieces.push({ ...run, text: display, from: run.from + index, to: run.from + index + segment.length,
-        x, width: w, font: f, color: run.token ? codeStyle.tokenColors?.[run.token] || style?.color : style?.color }); x += w;
+        x, width: w, font: f, color: run.token ? codeStyle.tokenColors?.[run.token] || color : color }); x += w;
     }
   }
   if (pieces.length || !lines.length) finish();

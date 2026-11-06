@@ -101,8 +101,11 @@ class CanvasReaderPlugin extends BasePlugin {
       this.content.scrollTop = 0;
       if (mode === 'canvas-editor') {
         const calloutPlugin = this.utils.getPlugin?.('callouts');
+        const images = runtime.createImageAdapter({ plugin: this.utils.getPlugin?.('obsidian_images'), write: this.rendererWrite,
+          fs: require('fs'), path: require('path'), toFileURL: target => require('url').pathToFileURL(target).href,
+          nativeResolve: source => File.editor.imgEdit?.getAbsolutePath?.(source), resolveLocal: source => this.utils.resolveLocalPath(source) });
         const nativeCallouts = calloutPlugin?.config?.ENABLE !== false
-          ? runtime.createNativeCalloutRenderer({ write: this.rendererWrite, plugin: calloutPlugin }) : null;
+          ? runtime.createNativeCalloutRenderer({ write: this.rendererWrite, plugin: calloutPlugin, images }) : null;
         const getTheme = () => runtime.readCanvasTheme({ write: this.rendererWrite, content: this.content,
           calloutConfig: this.utils.getPlugin?.('callouts')?.config || { ENABLE: false } });
         this.reader = runtime.mountCanvasEditor({ markdown, parent: this.content, embedded: true, onClose: this.close,
@@ -113,7 +116,7 @@ class CanvasReaderPlugin extends BasePlugin {
           resolveImage: source => {
             if (/^(?:https?:|data:|blob:|file:)/i.test(source)) return source;
             return require('url').pathToFileURL(this.utils.resolveLocalPath(decodeURI(source))).href;
-          }, theme: getTheme(), getTheme, themeNodes: [this.rendererWrite, this.content], nativeCallouts });
+          }, theme: getTheme(), getTheme, themeNodes: [this.rendererWrite, this.content], nativeCallouts, images });
         this.canvasBridge = runtime.attachCanvasHost({ file: File, editor: this.reader,
           onConflict: message => this.reader?.setStatus(message), onRecovery: source => {
           const fs = require('fs'), path = require('path');

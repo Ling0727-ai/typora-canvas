@@ -7,3 +7,4 @@ export { attachCanvasNavigation } from './navigation.js';
 export { readCanvasTheme } from './theme.js';
 export { readCalloutTheme } from './callouts.js';
 export { createNativeCalloutRenderer } from './native-callouts.js';
+export { createImageAdapter } from './images.js';

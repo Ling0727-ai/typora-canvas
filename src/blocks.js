@@ -1,4 +1,6 @@
-export function classifyBlocks(contexts) {
+import { parseImageSource } from './images.js';
+
+export function classifyBlocks(contexts, { parseImage = parseImageSource } = {}) {
   const rows = [], codes = [];
   let code = null, math = null;
   const sameScope = (block, context) => !block.group || context.callouts.some(g => g.id === block.group);
@@ -35,7 +37,7 @@ export function classifyBlocks(contexts) {
     } else if (context.calloutHeader) row.type = 'callout-title';
     else {
       const open = /^\s*(\$\$|\\\[)(.*)$/.exec(text);
-      const image = /^\s*!\[([^\]]*)\]\(([^\s]+?)(?:\s+"[^"]*")?\)\s*$/.exec(text);
+      const image = parseImage(text);
       const heading = /^(#{1,6})\s/.exec(text);
       if (open) {
         const bracket = open[1] !== '$$', close = bracket ? /\\\]\s*$/ : /(?<!\\)\$\$\s*$/;
@@ -44,7 +46,7 @@ export function classifyBlocks(contexts) {
         else { row.type = 'math'; math = { start: i, parts: [open[2]], bracket, group: context.callouts.at(-1)?.id }; }
       } else if (!text.trim()) row.type = 'blank';
       else if (/^\s{0,3}(?:(?:-\s*){3,}|(?:_\s*){3,}|(?:\*\s*){3,})$/.test(text)) row.type = 'rule';
-      else if (image) Object.assign(row, { type: 'image', alt: image[1], url: image[2] });
+      else if (image) Object.assign(row, { type: 'image', ...image });
       else if (heading) Object.assign(row, { type: 'heading', level: heading[1].length });
       else if (/^\s*>/.test(text)) row.type = 'quote';
     }

@@ -16,7 +16,7 @@ const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
 export function mountCanvasEditor({ markdown = '', parent = document.body, embedded = false, onChange = () => {},
   onSave = async () => {}, onClose = () => {}, resolveImage = value => value,
   theme = {}, initialDirty = false, getTheme = null, themeNodes = [], nativeCallouts = null,
-  onOpenLink = href => window.open(href, '_blank', 'noopener'), onViewportChange = () => {} }) {
+  onOpenLink = href => window.open(href, '_blank', 'noopener'), onViewportChange = () => {}, images = null }) {
   const model = new CanvasDocument(markdown, { dirty: initialDirty });
   const host = document.createElement('div'); host.dataset.typoraCanvasEditor = '';
   Object.assign(host.style, { position: embedded ? 'absolute' : 'fixed', inset: '0', zIndex: '10', visibility: 'visible' });
@@ -236,7 +236,7 @@ export function mountCanvasEditor({ markdown = '', parent = document.body, embed
   }
   function rebuild() {
     structureRebuilds++;
-    rows = classifyLines(model.doc, { customCallouts: calloutTheme.customEnabled }); layouts.clear();
+    rows = classifyLines(model.doc, { customCallouts: calloutTheme.customEnabled, parseImage: images?.parse }); layouts.clear();
     for (const entry of assets.values()) entry.dependents.clear();
     refreshTableSelection(false);
     openCallouts = effectiveOpenCallouts(activeLines());
@@ -264,8 +264,8 @@ export function mountCanvasEditor({ markdown = '', parent = document.body, embed
     }
     return assets.size + extra <= 256 && assetBytes + bytes <= 32 * 1024 * 1024;
   }
-  function asset(type, source, display, color = drawColor, dependentLine = null) {
-    const key = `${type}:${display}:${color}:${source}`;
+  function asset(type, source, display, color = drawColor, dependentLine = null, options = {}) {
+    const key = `${type}:${display}:${color}:${JSON.stringify(options)}:${source}`;
     if (assets.has(key)) {
       const value = assets.get(key); assets.delete(key); assets.set(key, value);
       if (dependentLine !== null) value.dependents.add(dependentLine);
@@ -283,13 +283,14 @@ export function mountCanvasEditor({ markdown = '', parent = document.body, embed
         let url;
         if (type === 'math') {
           if (source.length > 20000) throw new Error('公式过长');
-          const result = await formulaEngine.render(source, { size: fontSize, color, display }, { signal: entry.controller.signal });
+          const result = await formulaEngine.render(source, { size: options.size || fontSize, color, display }, { signal: entry.controller.signal });
           if (!current()) return;
           url = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(result.svg)}`;
           entry.width = result.width; entry.height = result.height;
           entry.ascent = result.ascent; entry.depth = result.depth;
         } else {
-          url = resolveImage(source);
+          url = await (type === 'image' && images ? images.resolve(source, options) : resolveImage(source));
+          if (!current()) return;
           if (!/^(https?:|data:image\/|blob:|file:|typora:)/i.test(url)) throw new Error('不支持的图片地址');
         }
         const image = new Image(); image.decoding = 'async';
@@ -318,7 +319,7 @@ export function mountCanvasEditor({ markdown = '', parent = document.body, embed
   }
   function layoutKey(i, raw) {
     const line = model.doc.line(i + 1);
-    const cursor = raw && (['table', 'heading', 'rule', 'code-fence'].includes(rows[i].type) || line.text.includes('$')) ? `:${model.head - line.from}:${model.anchor - line.from}` : '';
+    const cursor = raw && (rows[i].calloutHeader || ['table', 'heading', 'rule', 'code-fence'].includes(rows[i].type) || line.text.includes('$')) ? `:${model.head - line.from}:${model.anchor - line.from}` : '';
     return `${i}:${raw}:${rows[i].revision}${cursor}${i === tableToolbarStart ? ':tools' : ''}`;
   }
   function clearCalloutCache() {
@@ -384,7 +385,8 @@ export function mountCanvasEditor({ markdown = '', parent = document.body, embed
     const formula = rows[i].type === 'math-tail' ? rows[rows[i].start] : null;
     // Keep every source line visible until the grouped equation is ready.
     // Register each tail as a dependent so only this group collapses on success.
-    const hideMathTail = formula && !raw && asset('math', formula.tex, true, drawColor, i)?.image;
+    const hideMathTail = formula && !raw && asset('math', formula.tex, true, typography.paragraph?.color || drawColor, i,
+      { size: typography.paragraph?.fontSize || fontSize })?.image;
     if (!raw && (hideMathTail || ['table-separator', 'blank'].includes(rows[i].type))) {
       const h = .01 + (i === 0 ? containerStyle.paddingTop || 0 : 0);
       heights.update(i, h); return { height: h, lines: [], top: 0, lineHeight: 29 };
@@ -397,7 +399,8 @@ export function mountCanvasEditor({ markdown = '', parent = document.body, embed
       value = layoutSourceLine(ctx, line.text, codeTokens ? { ...rows[i], codeTokens } : rows[i], { width: contentWidth, raw: raw || !!formula, font,
         cursor: model.head - line.from, selection: { from: model.from - line.from, to: model.to - line.from }, calloutTheme,
         typography, codeStyle, size: fontSize,
-        asset: (type, source, display, color) => asset(type, source, display, color || (rows[i].type === 'table' ? rows[i].header ? tableStyle.headerColor : tableStyle.color : drawColor), i), measure: (f, text) => {
+        imageLayout: images?.measure,
+        asset: (type, source, display, color, options) => asset(type, source, display, color || (rows[i].type === 'table' ? rows[i].header ? tableStyle.headerColor : tableStyle.color : drawColor), i, options), measure: (f, text) => {
           const key = `${f}\0${text}`; let w = measurements.get(key);
           if (w === undefined) { ctx.font = f; w = measurements.set(key, ctx.measureText(text).width); }
           return w;
@@ -447,7 +450,7 @@ export function mountCanvasEditor({ markdown = '', parent = document.body, embed
         /^\s*[| :\-]+$/.test(model.doc.line(change.first + 1).text)) rebuild();
     else {
       const i = change.first, old = rows[i];
-      const next = classifyLines({ lines: 1, line: () => ({ text: model.doc.line(i + 1).text.slice(old.sourceOffset || 0) }) })[0];
+      const next = classifyLines({ lines: 1, line: () => ({ text: model.doc.line(i + 1).text.slice(old.sourceOffset || 0) }) }, { parseImage: images?.parse })[0];
       if (!['code', 'table'].includes(old.type) && (next.type !== old.type || next.level !== old.level)) rebuild();
       else {
         rows[i] = ['code', 'table'].includes(old.type) ? { ...old, revision: old.revision + 1 } : {
@@ -580,7 +583,7 @@ export function mountCanvasEditor({ markdown = '', parent = document.body, embed
           previewFormulas++;
           ctx.drawImage(p.media.image, left + p.x, y + visual.top + visual.baseline - p.ascent, p.width, p.height);
         }
-        else { ctx.font = p.font; ctx.fillStyle = p.color || (p.link ? '#4c80d1' : drawColor);
+        else { ctx.font = p.font; ctx.fillStyle = p.color || drawColor;
           ctx.fillText(p.text, left + p.x, y + visual.top + visual.baseline); }
       }
       if (value.calloutTitle) {
@@ -629,6 +632,7 @@ export function mountCanvasEditor({ markdown = '', parent = document.body, embed
     const i = heights.find(Math.max(0, y));
     const value = layout(i), line = model.doc.line(i + 1);
     if (value.nativeCallout) {
+      if (rows[i].calloutHeader && x <= left + 38) return line.from + line.text.indexOf('[!') + 2;
       const contentStart = rows[i].calloutHeader?.titleFrom ?? rows[i].sourceOffset ?? 0;
       return line.from + Math.min(line.text.length, contentStart + Math.max(0, Math.round((x - left - 16) / (fontSize * .8))));
     }
@@ -720,6 +724,27 @@ export function mountCanvasEditor({ markdown = '', parent = document.body, embed
     }
     wantedX = null; setSelection(extend ? model.anchor : next, next);
   };
+  const moveVertical = (direction, extend) => {
+    const caret = caretBox(), current = layout(caret.i);
+    wantedX ??= caret.x;
+    const localY = caret.y - heights.prefix(caret.i);
+    const visual = current.lines.findIndex(line => Math.abs(line.top - localY) < .5);
+    const adjacent = visual < 0 ? null : current.lines[visual + direction];
+    let next;
+    if (adjacent) next = hit(wantedX, heights.prefix(caret.i) + adjacent.top + adjacent.height / 2);
+    else {
+      const i = caret.i + direction;
+      if (i < 0 || i >= rows.length) next = direction < 0 ? 0 : model.length;
+      else {
+        const target = layout(i), line = direction < 0 ? target.lines.at(-1) : target.lines[0];
+        // Block margins and Callout title gaps are not visual text rows. A
+        // pixel step can stay in the same margin forever; choose the next row.
+        next = line ? hit(wantedX, heights.prefix(i) + line.top + line.height / 2)
+          : target.nativeCallout ? hit(wantedX, heights.prefix(i) + target.height / 2) : model.doc.line(i + 1).from;
+      }
+    }
+    setSelection(extend ? model.anchor : next, next);
+  };
   const onKey = event => {
     if (!event.composedPath().includes(host)) return;
     event.stopImmediatePropagation();
@@ -752,9 +777,7 @@ export function mountCanvasEditor({ markdown = '', parent = document.body, embed
     }
     if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') { event.preventDefault(); moveHorizontal(event.key === 'ArrowLeft' ? -1 : 1, event.shiftKey); return; }
     if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
-      event.preventDefault(); const caret = caretBox(); wantedX ??= caret.x;
-      const next = hit(wantedX, caret.y + (event.key === 'ArrowUp' ? -caret.height / 2 : caret.height * 1.5));
-      setSelection(event.shiftKey ? model.anchor : next, next); return;
+      event.preventDefault(); moveVertical(event.key === 'ArrowUp' ? -1 : 1, event.shiftKey); return;
     }
     if (event.key === 'Home' || event.key === 'End') {
       event.preventDefault(); const line = model.doc.lineAt(model.head);
