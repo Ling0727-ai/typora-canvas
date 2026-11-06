@@ -13,9 +13,10 @@ import { testInlineImagesAndCaret } from './inline-images-browser.mjs';
 import { testSpacingAndQuoteEditing } from './spacing-browser.mjs';
 import { testQuoteEnter } from './quote-enter-browser.mjs';
 import { testTableArrows } from './table-arrows-browser.mjs';
+import { usePlatformShortcuts } from './keyboard.mjs';
 
 const server = spawn(process.execPath, ['scripts/serve.mjs'], { stdio: 'pipe', env: { ...process.env, PORT: '4174' } });
-let browser;
+let browser, page;
 try {
   await new Promise((resolve, reject) => {
     const timeout = setTimeout(() => reject(new Error('Preview server timeout')), 20000);
@@ -25,7 +26,8 @@ try {
   });
   browser = await chromium.launch({ channel: process.env.PLAYWRIGHT_CHANNEL || undefined,
     executablePath: process.env.PLAYWRIGHT_EXECUTABLE_PATH || undefined, headless: true, ignoreDefaultArgs: ['--hide-scrollbars'] });
-  const page = await browser.newPage({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1 });
+  page = await browser.newPage({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1 });
+  usePlatformShortcuts(page);
   const errors = [];
   page.on('pageerror', error => errors.push(String(error)));
   await page.goto('http://127.0.0.1:4174');
@@ -59,6 +61,8 @@ try {
   await mkdir('test-output', { recursive: true });
   await page.screenshot({ path: 'test-output/preview.png' });
   await writeFile('test-output/metrics.json', JSON.stringify({ initial, searched, resized }, null, 2));
+  await writeFile('test-output/platform.json', JSON.stringify({ platform: process.platform, arch: process.arch,
+    node: process.version, chromium: browser.version(), modifier: process.platform === 'darwin' ? 'Meta' : 'Control' }, null, 2));
   await page.keyboard.press('Escape');
   assert.equal(await page.locator('[data-typora-canvas]').count(), 0);
   // Reopening does not retain the prior viewer or its event handlers.
@@ -258,6 +262,11 @@ try {
   await testTableArrows(page);
   assert.deepEqual(errors, []);
   console.log(JSON.stringify({ passed: true, initial, searched, resized, hybridStats, pureStats, bigAfter }, null, 2));
+} catch (error) {
+  await mkdir('test-output', { recursive: true });
+  await writeFile('test-output/failure.txt', `${process.platform}/${process.arch} Node ${process.version}\n${error.stack || error}`);
+  await page?.screenshot({ path: 'test-output/failure.png', timeout: 5000 }).catch(() => {});
+  throw error;
 } finally {
   await browser?.close(); server.kill();
 }

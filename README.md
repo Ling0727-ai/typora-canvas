@@ -162,7 +162,9 @@ npm run test:browser
 node scripts/sync-callouts.mjs --source ../typora-obsidian-callouts
 ```
 
-截图与测试数据在被 Git 忽略的 `test-output/`。这些是浏览器集成测试和模拟宿主接口测试，**不等于真实 Typora 中所有编辑、公式和主题都已完成验证，也没有混合模式的性能提升结论**。旧版 9001 块合成文档的 Canvas 绘制采样不能作为混合模式的性能数据。
+GitHub Actions 在 Windows、macOS、Linux 三个 runner 上分别运行 Node.js 22 单元测试、构建及 Chromium 浏览器回归。macOS 使用 Command 快捷键，Windows/Linux 使用 Ctrl；任务独立执行，一个系统失败不会取消其他系统。支持 push、pull request 和手动触发。每个平台分别上传 `browser-results-<os>`（截图、指标、平台信息及失败诊断）与 `typora-canvas-<os>`（构建的插件文件），保留 7 天。
+
+截图与测试数据在被 Git 忽略的 `test-output/`。这些是浏览器集成测试和模拟宿主接口测试，**不等于真实 Typora 中所有编辑、公式和主题都已完成验证，也没有混合模式的性能提升结论**。跨系统 CI 也不等于已在三系统真实 Typora 中验证安装与宿主接口；安装时仍需使用对应平台的插件框架资源路径。旧版 9001 块合成文档的 Canvas 绘制采样不能作为混合模式的性能数据。
 
 ## 后续方向
 
