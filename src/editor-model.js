@@ -1,6 +1,7 @@
 import { Text } from '@codemirror/state';
 import { calloutContexts } from './callouts.js';
 import { classifyBlocks } from './blocks.js';
+import { markBlankSpacing } from './spacing.js';
 
 // Immutable rope snapshots preserve Markdown verbatim, including unknown syntax
 // and existing CRLF. No rich-text-to-Markdown serialization is involved.
@@ -87,13 +88,14 @@ export function classifyLines(doc, { customCallouts = true, parseImage } = {}) {
     i = end - 1;
   }
   rows.calloutGroups = groups;
+  markBlankSpacing(rows);
   let previous = null;
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i], next = rows[i + 1], before = rows[i - 1];
     row.paragraphStart = !before || before.type !== 'paragraph' || before.callouts.at(-1)?.id !== row.callouts.at(-1)?.id;
     row.paragraphEnd = !next || next.type !== 'paragraph' || next.callouts.at(-1)?.id !== row.callouts.at(-1)?.id;
     row.previousBlock = previous;
-    if (row.type !== 'blank') previous = { type: row.type, level: row.level, end: row.paragraphEnd };
+    if (row.type !== 'blank' || row.emptyParagraph) previous = { type: row.type, level: row.level, end: row.paragraphEnd };
   }
   return rows;
 }

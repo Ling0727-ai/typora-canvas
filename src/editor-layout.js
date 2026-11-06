@@ -3,6 +3,7 @@ import { tableCells } from './editor-model.js';
 import { defaultCalloutTheme, calloutSpec } from './callouts.js';
 import { displayMathGeometry } from './math-geometry.js';
 import { inlineSourceRuns } from './inline-source.js';
+import { blankGeometry } from './spacing.js';
 export const editorFont = '"Segoe UI", "Microsoft YaHei", sans-serif';
 
 // Inactive lines elide common Markdown markers; the active source line is exact.
@@ -46,8 +47,8 @@ export function layoutSourceLine(ctx, text, row, { width, raw, font = editorFont
   selection = null, calloutTheme = defaultCalloutTheme(), typography = {}, codeStyle = {}, imageLayout = null }) {
   if (row.callouts?.length) {
     const group = row.callouts.at(-1), spec = calloutSpec(calloutTheme, group.type), header = row.calloutHeader;
-    const editingHeader = !!header && raw && (cursor >= 0 && cursor < text.length || selection?.from !== selection?.to);
-    const sourceOffset = header ? editingHeader ? 0 : group.titleFrom : row.sourceOffset;
+    const editingHeader = !!header && raw;
+    const sourceOffset = raw ? 0 : header ? group.titleFrom : row.sourceOffset;
     const label = header && !editingHeader ? group.title : text.slice(sourceOffset);
     const indent = row.callouts.reduce((sum, g) => sum + calloutSpec(calloutTheme, g.type).paddingLeft + 2, 0);
     const iconWidth = header && !editingHeader ? spec.iconSize + 8 : 0;
@@ -83,14 +84,15 @@ export function layoutSourceLine(ctx, text, row, { width, raw, font = editorFont
   const lineHeight = style?.lineHeight || Math.ceil(fontSize * 1.7);
   let top = row.type === 'heading' ? 16 : 5, bottom = 7;
   if (style) {
-    const previous = !row.previousBlock ? null : row.previousBlock.type === 'heading' ? typography.headings?.[row.previousBlock.level - 1] : typography.paragraph;
+    const previous = !row.previousBlock ? null : row.previousBlock.type === 'heading' ? typography.headings?.[row.previousBlock.level - 1]
+      : row.previousBlock.type === 'blank' ? typography.blank || typography.paragraph : typography.paragraph;
     const before = row.type === 'paragraph' && !row.paragraphStart || row.tableCell ? 0 : style.marginTop || 0;
     top = (style.paddingTop || 0) + Math.max(0, before - (previous?.marginBottom || 0));
     bottom = (style.paddingBottom || 0) + (row.type === 'paragraph' && !row.paragraphEnd || row.tableCell ? 0 : style.marginBottom || 0);
     if (row.calloutWrapped && row.type === 'paragraph') { top = 3; bottom = 3; }
     if (row.type === 'code') { top = 2; bottom = 2; }
   }
-  if (row.type === 'blank' && !raw) return { height: .01, lines: [], top: 0, lineHeight, fontSize };
+  if (row.type === 'blank' && (!raw || row.emptyParagraph && !row.calloutWrapped)) return blankGeometry(row, typography, size);
   if (row.type === 'rule' && !(raw && cursor > 0 && cursor < text.length)) {
     const rule = typography.rule || { color: '#8997b388', width: 1, marginTop: 14, marginBottom: 14 };
     return { height: rule.marginTop + rule.marginBottom + Math.max(1, rule.width), lines: [], top: 0, lineHeight, fontSize,

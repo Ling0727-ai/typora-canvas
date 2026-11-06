@@ -2,6 +2,8 @@ import MarkdownIt from 'markdown-it';
 import { toCanvas } from 'html-to-image';
 import { FormulaEngine } from './formula-client.js';
 import { displayMathGeometry } from './math-geometry.js';
+import { CanvasDocument, classifyLines } from './editor-model.js';
+import { insertBlankParagraphs } from './spacing.js';
 
 // Run a second, unregistered instance of the installed plugin with scoped
 // entities. Its lifecycle/hotkeys never run and its original instance is intact.
@@ -17,6 +19,15 @@ export function createNativeCalloutRenderer({ write, plugin, images = null }) {
   instance.utils = Object.create(plugin.utils);
   Object.defineProperty(instance.utils, 'entities', { value: entities });
   const md = new MarkdownIt({ html: false, breaks: false, linkify: false });
+  // Permit explicit line breaks without enabling arbitrary embedded HTML.
+  md.inline.ruler.before('autolink', 'canvas_break', (state, silent) => {
+    const match = /^<br\s*\/?>/i.exec(state.src.slice(state.pos));
+    if (!match) return false;
+    if (!silent) state.push('canvas_break', 'br', 0);
+    state.pos += match[0].length; return true;
+  });
+  md.renderer.rules.canvas_break = () => '<br>';
+  md.renderer.rules.canvas_blank = (all, i) => `<p class="md-end-block md-p" data-tc-line="${all[i].map[0]}"><br></p>\n`;
   if (images) md.inline.ruler.before('image', 'canvas_wiki_image', (state, silent) => {
     const image = images.parseWiki(state.src.slice(state.pos));
     if (!image) return false;
@@ -59,7 +70,8 @@ export function createNativeCalloutRenderer({ write, plugin, images = null }) {
   // Preserve native paragraph/softbreak structure, including the marker span
   // consumed by Callouts.decorateTitle. Attributes only map pixels to source.
   const render = source => {
-    const tokens = md.parse(source, {});
+    const parsed = md.parse(source, {}), rows = classifyLines(new CanvasDocument(source).doc);
+    const tokens = insertBlankParagraphs(parsed, rows, () => new parsed[0].constructor('canvas_blank', 'p', 0));
     for (const token of tokens) {
       if (token.map && token.nesting === 1) token.attrSet('data-tc-line', String(token.map[0]));
       if (token.type === 'inline') token.type = 'canvas_inline';

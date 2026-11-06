@@ -10,6 +10,7 @@ import { testFormulaIsolation } from './formulas-browser.mjs';
 import { testDisplayMathSpacing } from './math-spacing-browser.mjs';
 import { testNavigation } from './navigation-browser.mjs';
 import { testInlineImagesAndCaret } from './inline-images-browser.mjs';
+import { testSpacingAndQuoteEditing } from './spacing-browser.mjs';
 
 const server = spawn(process.execPath, ['scripts/serve.mjs'], { stdio: 'pipe', env: { ...process.env, PORT: '4174' } });
 let browser;
@@ -250,6 +251,7 @@ try {
   await testDisplayMathSpacing(page);
   await testNavigation(page);
   await testInlineImagesAndCaret(page);
+  await testSpacingAndQuoteEditing(page);
   assert.deepEqual(errors, []);
   console.log(JSON.stringify({ passed: true, initial, searched, resized, hybridStats, pureStats, bigAfter }, null, 2));
 } finally {

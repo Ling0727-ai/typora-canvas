@@ -39,6 +39,8 @@ export function readNativeStyles(write) {
   };
   try {
     const paragraph = append('p'); paragraph.textContent = 'Text';
+    const empty = append('p'); empty.className = 'md-end-block md-p'; empty.innerHTML = '<br>';
+    const blank = { ...textStyle(empty), minHeight: px(getComputedStyle(empty).minHeight) };
     const inline = inlineStyles(paragraph);
     const headings = Array.from({ length: 6 }, (_, i) => {
       const h = append(`h${i + 1}`); h.textContent = 'Heading'; return { ...textStyle(h), inline: inlineStyles(h) };
@@ -61,7 +63,7 @@ export function readNativeStyles(write) {
     const root = getComputedStyle(write);
     return { container: { maxWidth: px(root.maxWidth, 948), paddingTop: px(root.paddingTop), paddingBottom: px(root.paddingBottom, 48),
       paddingLeft: px(root.paddingLeft, 24), paddingRight: px(root.paddingRight, 24) },
-      typography: { paragraph: { ...textStyle(paragraph), inline }, headings, inline,
+      typography: { paragraph: { ...textStyle(paragraph), inline }, blank, headings, inline,
         tableHeader: { ...textStyle(th), inline: inlineStyles(th) }, tableCell: { ...textStyle(odd), inline: inlineStyles(odd) },
         rule: { color: px(rule.borderTopWidth) ? rule.borderTopColor : rule.color,
           width: px(rule.borderTopWidth, 1), marginTop: px(rule.marginTop, 16), marginBottom: px(rule.marginBottom, 16) } },

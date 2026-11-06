@@ -24,7 +24,7 @@ test('fences keep language metadata, closing fence and unclosed source intact', 
   assert.ok(languageSuggestions('c').some(l => l.id === 'c'));
 });
 
-test('rules render as lines and inactive blank source lines consume no extra paragraph spacing', () => {
+test('rules render as lines and blank runs next to headings collapse outside editing', () => {
   for (const source of ['---', '___', '***', '- - -']) {
     const row = classify(source)[0]; assert.equal(row.type, 'rule');
     const layout = layoutSourceLine({ font: '' }, source, row, options);

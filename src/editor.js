@@ -11,6 +11,7 @@ import { tableContext as findTableContext, cellRange, editTable, tableSource } f
 import { mountTableToolbar, TABLE_TOOLS_HEIGHT } from './table-toolbar.js';
 import { CodeHighlighter, languageLabel } from './code-client.js';
 import { mountCodeUI } from './code-ui.js';
+import { blankGeometry } from './spacing.js';
 
 const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
 export function mountCanvasEditor({ markdown = '', parent = document.body, embedded = false, onChange = () => {},
@@ -54,7 +55,7 @@ export function mountCanvasEditor({ markdown = '', parent = document.body, embed
   const highlighter = new CodeHighlighter(), codeCache = new Map();
   const calloutCache = new Map(); let calloutBytes = 0, drawnNativeCallouts = 0;
   let rows, heights, width = 0, height = 0, contentWidth = 0, left = 0, dpr = 1, raf = 0;
-  let composing = false, disposed = false, focused = false, dragging = false, scope, syncingInput = false;
+  let composing = false, disposed = false, focused = false, dragging = false, scope, syncingInput = false, sourceActivated = false;
   let wantedX = null, searchTimer, searchEpoch = 0, hits = [], hitPosition = -1, saving = false;
   let lastPaintMs = 0, drawn = 0, assetBytes = 0, errorMessage = '', previousRaw = new Set();
   let structureRebuilds = 0;
@@ -97,7 +98,9 @@ export function mountCanvasEditor({ markdown = '', parent = document.body, embed
       if (nativeCallouts) for (const i of [...result]) {
         const group = rows[i]?.callouts?.[0];
         if (!group) continue;
-        const line = model.doc.line(i + 1), boundary = i === group.start && model.from === model.to &&
+        // Automatic startup focus keeps the preview. Explicit pointer/keyboard
+        // selection exposes source even at the title's first/last character.
+        const line = model.doc.line(i + 1), boundary = !sourceActivated && i === group.start && model.from === model.to &&
           (model.head === line.from || model.head === line.to);
         if (boundary) result.delete(i);
         else for (let j = group.start; j <= group.end; j++) result.add(j);
@@ -130,7 +133,7 @@ export function mountCanvasEditor({ markdown = '', parent = document.body, embed
   const estimate = (i, raw = false) => {
     const row = rows[i], text = model.doc.line(i + 1).text;
     if (hiddenCallout(row)) return .01;
-    if (!raw && row.type === 'blank') return .01 + (i === 0 ? containerStyle.paddingTop || 0 : 0);
+    if (!raw && row.type === 'blank') return blankGeometry(row, typography, fontSize).height + (i === 0 ? containerStyle.paddingTop || 0 : 0);
     if (!raw && ['math-tail', 'table-separator'].includes(row.type)) return 0.01;
     const size = row.type === 'heading' ? Math.max(fontSize, 32 - row.level * 2) : fontSize;
     return Math.max(1, Math.ceil(text.length / Math.max(1, contentWidth / size))) * Math.ceil(size * 1.7) + 14 + (i === tableToolbarStart ? TABLE_TOOLS_HEIGHT : 0) + (i === 0 ? containerStyle.paddingTop || 0 : 0);
@@ -387,7 +390,7 @@ export function mountCanvasEditor({ markdown = '', parent = document.body, embed
     // Register each tail as a dependent so only this group collapses on success.
     const hideMathTail = formula && !raw && asset('math', formula.tex, true, typography.paragraph?.color || drawColor, i,
       { size: typography.paragraph?.fontSize || fontSize })?.image;
-    if (!raw && (hideMathTail || ['table-separator', 'blank'].includes(rows[i].type))) {
+    if (!raw && (hideMathTail || rows[i].type === 'table-separator')) {
       const h = .01 + (i === 0 ? containerStyle.paddingTop || 0 : 0);
       heights.update(i, h); return { height: h, lines: [], top: 0, lineHeight: 29 };
     }
@@ -444,6 +447,7 @@ export function mountCanvasEditor({ markdown = '', parent = document.body, embed
     input.style.top = `${Math.max(0, Math.min(height - 28, caret.y - scroll.scrollTop))}px`;
   }
   function changed(change = null) {
+    sourceActivated = true;
     errorMessage = '';
     if (!change || change.addedLines || change.first !== change.last || rows[change.first]?.calloutHeader ||
         ['math', 'math-tail', 'code-fence'].includes(rows[change.first]?.type) || /[\n$`~|>\[\]]/.test(change.inserted + change.deleted) ||
@@ -455,7 +459,7 @@ export function mountCanvasEditor({ markdown = '', parent = document.body, embed
       else {
         rows[i] = ['code', 'table'].includes(old.type) ? { ...old, revision: old.revision + 1 } : {
           ...next, sourceLine: old.sourceLine, sourceOffset: old.sourceOffset, callouts: old.callouts, revision: old.revision + 1,
-          paragraphStart: old.paragraphStart, paragraphEnd: old.paragraphEnd, previousBlock: old.previousBlock };
+          paragraphStart: old.paragraphStart, paragraphEnd: old.paragraphEnd, previousBlock: old.previousBlock, emptyParagraph: old.emptyParagraph };
         heights.update(i, estimate(i, true));
       }
     }
@@ -464,6 +468,7 @@ export function mountCanvasEditor({ markdown = '', parent = document.body, embed
     onChange(model); syncInput(); revealCaret(); schedule();
   }
   function setSelection(anchor, head = anchor, reveal = true) {
+    sourceActivated = true;
     model.select(anchor, head); refreshTableSelection(); syncInput(); if (reveal) revealCaret(); schedule();
   }
   function resize() {
