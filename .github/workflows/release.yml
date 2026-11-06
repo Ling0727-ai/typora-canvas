@@ -30,3 +30,29 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
         run: gh release create "$RELEASE_TAG" dist/release/* --verify-tag --title "Typora Canvas $RELEASE_TAG" --notes-file RELEASE_NOTES.md
+  npm:
+    name: Publish npm (OIDC)
+    needs: [validate, publish]
+    if: vars.NPM_TRUSTED_PUBLISHING == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - name: Use OIDC-capable npm
+        run: npm install --global npm@11.20.0
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-files-ubuntu-latest
+          path: dist/release
+      - name: Verify validated package checksums
+        working-directory: dist/release
+        run: sha256sum --check SHA256SUMS.txt
+      - name: Publish prebuilt package with provenance
+        run: npm run publish:registry

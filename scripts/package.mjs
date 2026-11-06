@@ -8,17 +8,20 @@ import { createHash } from 'node:crypto';
 const meta = JSON.parse(await readFile('package.json', 'utf8'));
 const stage = resolve('dist/package'), output = resolve('dist/release');
 await mkdir(join(stage, 'scripts'), { recursive: true });
+await mkdir(join(stage, '.github'), { recursive: true });
 await mkdir(output, { recursive: true });
 await cp('dist/plugin', join(stage, 'dist/plugin'), { recursive: true });
-for (const file of ['README.md', 'README_CN_simplised.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md']) await cp(file, join(stage, file));
+const documentation = ['README.md', 'README_CN_simplised.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md', '.github/PUBLISHING.md'];
+for (const file of documentation) await cp(file, join(stage, file));
 await build({ entryPoints: ['scripts/install.mjs'], outfile: join(stage, 'scripts/install.mjs'),
   bundle: true, platform: 'node', format: 'esm', target: 'node20', legalComments: 'eof' });
 await chmod(join(stage, 'scripts/install.mjs'), 0o755);
 await writeFile(join(stage, 'package.json'), JSON.stringify({ name: meta.name, version: meta.version,
   description: meta.description, type: 'module', license: 'MIT', engines: meta.engines,
   repository: { type: 'git', url: 'git+https://github.com/Ling0727-ai/typora-canvas.git' },
+  publishConfig: { access: 'public', registry: 'https://registry.npmjs.org/' },
   bin: { 'typora-canvas': 'scripts/install.mjs' },
-  files: ['dist/plugin/', 'scripts/install.mjs', 'README_CN_simplised.md', 'THIRD_PARTY_NOTICES.md'] }, null, 2) + '\n');
+  files: ['dist/plugin/', 'scripts/install.mjs', 'README_CN_simplised.md', 'THIRD_PARTY_NOTICES.md', '.github/PUBLISHING.md'] }, null, 2) + '\n');
 // npm supplies its own CLI path, avoiding shell-dependent npm.cmd invocation.
 if (!process.env.npm_execpath) throw new Error('Run packaging with npm run package.');
 const pack = spawnSync(process.execPath, [process.env.npm_execpath, 'pack', stage, '--pack-destination', output, '--ignore-scripts', '--json'], { encoding: 'utf8' });
@@ -32,7 +35,7 @@ async function collect(directory, prefix = '') {
   }
 }
 await collect(resolve('dist/plugin'));
-for (const file of ['README.md', 'README_CN_simplised.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md']) entries[file] = new Uint8Array(await readFile(file));
+for (const file of documentation) entries[file] = new Uint8Array(await readFile(file));
 const zip = `typora-canvas-v${meta.version}.zip`;
 await writeFile(join(output, zip), zipSync(entries));
 const sums = [];

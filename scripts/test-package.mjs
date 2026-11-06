@@ -15,9 +15,9 @@ try {
     const result = spawnSync(process.execPath, args, { env, encoding: 'utf8', timeout: 60000 });
     assert.equal(result.status, code, `${args.join(' ')}\n${result.stdout}\n${result.stderr}`); return result.stdout;
   };
-  const tarball = resolve(`dist/release/typora-canvas-${meta.version}.tgz`);
+  const tarball = resolve(`dist/release/${meta.name.replace(/^@/, '').replace('/', '-')}-${meta.version}.tgz`);
   run([process.env.npm_execpath, 'install', '--global', '--prefix', prefix, '--ignore-scripts', '--no-audit', '--no-fund', tarball]);
-  const packageRoot = process.platform === 'win32' ? join(prefix, 'node_modules/typora-canvas') : join(prefix, 'lib/node_modules/typora-canvas');
+  const packageRoot = join(prefix, process.platform === 'win32' ? 'node_modules' : 'lib/node_modules', meta.name);
   const bin = process.platform === 'win32' ? join(packageRoot, 'scripts/install.mjs') : join(prefix, 'bin/typora-canvas');
   await access(process.platform === 'win32' ? join(prefix, 'typora-canvas.cmd') : bin);
   assert.equal(run([bin, '--version']).trim(), meta.version);
