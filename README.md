@@ -1,133 +1,110 @@
 # Typora Canvas
 
-基于 Canvas 渲染的 **Typora 阅读插件**，探索大型 Markdown 文档的流畅滚动。
+基于 Canvas 的 Typora 渲染实验，目标是让大型 Markdown 文档滚动流畅，同时逐步补齐编辑与兼容能力。
 
-> A Canvas-based rendering plugin for Typora, built for smooth scrolling through large Markdown documents.
+> A Canvas rendering plugin for Typora, exploring smooth large-document rendering and native editing compatibility.
 
-**状态：开发中的原型。** 当前 `main` 默认在 Typora 原正文区域内自动使用 Canvas 2D 绘制，不添加窗口或全屏阅读界面；保留宿主侧栏和菜单。按 Escape 返回 Typora 编辑。它不是完整编辑器，也不承诺与 Typora 原生排版一致。目前没有真实文档上的性能对照结果。已发布的 v0.1.0 仍使用旧的手动阅读界面，以下说明对应当前源码。
+**当前源码：0.2.0 混合渲染原型。** 默认复用 Typora 原生文档、公式、CSS、扩展语法和编辑器；静止的普通内容块可以缓存到 Canvas。复杂内容和编辑交互继续由原生 DOM 处理。不添加窗口或独立阅读界面。
 
-## 工作方式
+已发布的 v0.1.0 是独立、只读的 Canvas 阅读器，功能与本说明不同。
+
+## 默认行为
+
+- 打开文档后自动启动，空白文档也保留正常编辑。
+- 右下角显示小型状态标识：准备、缓存、原生、编辑或输入。它说明实际运行状态，并不保证当前每一块内容都由 Canvas 绘制。
+- 点击正文、选区、输入、中文输入法、撤销都使用原生编辑器，不需要按快捷键切换。
+- 图片、数学公式、SVG、图表、代码编辑组件和部分复杂样式保留原生显示，不替换成源码或占位。
+- 主题与自定义 CSS 继续由 Typora 应用；可缓存内容使用其实际 DOM 尺寸与计算样式生成位图。外部字体、滤镜、阴影、动画等不适合位图的内容会保留原生显示。
+- `Ctrl+F` / `Ctrl+H` 直接交给 Typora，使用其原生查找替换及正则选项。
+- `Ctrl+Alt+Shift+F8` 开关加速层；关闭后当前文档不会立即自动重开，切换文档后恢复默认设置。
+- 源代码模式不挂载加速层，返回渲染模式后自动恢复。
+
+启动兼容处理不只依赖单个文件加载事件：插件启动时主动检查，并周期性检查宿主就绪状态。MathJax 或初始布局引发的 `fileEdited` 只刷新缓存，不再关闭插件。
+
+## 架构与实际限制
 
 ```text
-当前 Markdown 快照 → Markdown tokens → 内容块 → 高度索引
-                                               ↓
-滚动位置 → 定位视口附近块 → 按需排版 → 视口大小的 Canvas
-                              ↓
-                         有限 LRU 缓存
+Typora 原生解析、公式与 CSS → 可编辑 DOM（文档与布局的唯一来源）
+                                     ├─ 复杂内容 / 交互 → 原生显示
+                                     └─ 静止普通内容 → 局部位图缓存 → 视口 Canvas
+屏外内容 → 浏览器 content-visibility 优化
 ```
 
-- 全文解析为轻量数据块；屏外块不生成正文 DOM，也不立即排版。
-- Fenwick tree 维护估计高度和已测高度，按滚动位置定位块。
-- 仅排版视口附近及约 400px 缓冲区域，布局工作超过约 8ms 后让出当前帧。
-- Canvas 背板只覆盖视口，像素比上限为 2，不生成全文长图。
-- 布局缓存上限 256 块，文字宽度缓存上限 8192 项。
-- 实测高度替换估计高度时，尽量保持当前块及块内滚动位置。
-- 插件读取当前编辑器内容，包含未保存的修改，不写入文件。Canvas 挂载在原正文容器内；退出时恢复宿主样式、滚动和焦点。
-- 文档加载完成后自动渲染；空白新文档和源代码模式不自动接管。手动退出后，同一文档保持可编辑，切换文档再自动启用。
+Canvas 位图缓存默认上限 24 MiB、最多 128 项；Canvas 背板围绕视口设置。内容、主题与尺寸变化会让缓存失效，任何交互开始前同步恢复原生正文。组件不会重写 Markdown 或替换原生可编辑子树。
 
-它与手动 `display:none` 截断插件不同：可以连续滚动，接近的块自动排版和绘制。
+**混合方案不是完整的虚拟化编辑器。** 它仍保留全文 DOM、宿主文档模型和布局处理；生成位图也有成本。它不能加速首次解析、消除复杂公式本身的计算，编辑时会恢复原生渲染。使用屏外尺寸估计可能改变未访问内容的滚动高度。是否比原生更快，需要在真实笔记中测量。
 
-## 本地运行
+混合模式是兼容性基线和过渡方案。纯 Canvas 的长期方向是独立文档模型、增量布局、视口绘制与命中测试；可以复用 Markdown 和数学排版库，不必重写每个基础库。
 
-需要 Node.js 20 或更新版本。
+## 安装与更新
+
+需要 Node.js 20+，并已安装启用 [obgnail/typora_plugin](https://github.com/obgnail/typora_plugin) 框架。
 
 ```bash
 npm ci
-npm run dev
-```
-
-打开终端显示的本地地址。选择本地 Markdown，或生成 1000 节压力测试内容。文件在本机读取，不上传服务器。
-
-## 安装到 Typora
-
-第一版通过 [obgnail/typora_plugin](https://github.com/obgnail/typora_plugin) 加载，需要先安装并启用该框架。适配代码参考其 1.19.14 版本接口；尚未完成 Typora 内的实际验证。当前安装脚本面向 Windows。
-
-```bash
 npm run build
 npm run install:typora -- --dry-run
 npm run install:typora
 ```
 
-默认安装路径为 `C:\Program Files\Typora\resources`。自定义路径：
+Windows 默认安装位置：`C:\Program Files\Typora\resources`。自定义路径：
 
 ```bash
 npm run install:typora -- --resources "D:\Typora\resources"
 ```
 
-安装器将插件文件复制到框架目录，并在用户设置中添加 `[canvas_reader]`。如果存在 `~/.config/typora_plugin/settings.user.toml`，优先修改它，否则使用框架安装目录里的用户设置。安装前备份到 `~/.config/typora-canvas/backups/`。不会改写 Typora 的 `window.html`。
+写入 Program Files 需要相应权限。在管理员终端安装后，保存笔记、完全退出并重启 Typora。安装器不关闭程序或自动提升权限。仅改用户配置不会更新程序目录里的旧运行时。
 
-写入 `Program Files` 需要相应的文件权限。如提示拒绝访问，在有权限的终端执行安装命令。安装器不会关闭 Typora，也不会自动提升权限。
+安装前备份在 `~/.config/typora-canvas/backups/`。如存在 `~/.config/typora_plugin/settings.user.toml`，优先修改它，否则修改框架目录的用户设置。不改写 Typora 的 `window.html`。
 
-保存文档、完全退出并重启 Typora，打开非空文档后会在原正文区域自动使用 Canvas 渲染，不显示额外的标题栏、提示条和统计栏。使用：
-
-| 操作 | 快捷键 |
-| --- | --- |
-| 手动切换 Canvas / 原生编辑 | `Ctrl+Alt+Shift+F8` |
-| 返回 Typora 编辑 | `Escape`（搜索栏打开时先关闭搜索栏） |
-| 搜索全文 | `Ctrl+F` |
-| 下一个 / 上一个匹配块 | 搜索框内 `Enter` / `Shift+Enter` |
-
-搜索按内容块匹配，搜索栏仅在按下 `Ctrl+F` 后显示，计数也是块数。进入 Canvas 时从正文开头开始，退出保留进入前的 Typora 位置。文档切换、源代码模式切换或宿主报告内容变更时退出，避免继续显示旧快照；下一文档加载完成后自动启用。宿主侧栏保留，但原生大纲、查找替换、导出等操作与 Canvas 的位置同步尚未适配，使用这些操作前请返回原生编辑。阅读模式期间不要同时开启其他内容截断插件。
-
-需要关闭自动接管时，在插件用户配置的 `[canvas_reader]` 中设置：
+默认配置如下；修改已有节，不要重复添加：
 
 ```toml
 [canvas_reader]
 ENABLE = true
 NAME = "Typora Canvas"
 HOTKEY = "ctrl+alt+shift+f8"
-AUTO_OPEN = false
+AUTO_OPEN = true
+RENDER_MODE = "hybrid"
+CACHE_MB = 24
 ```
 
-`AUTO_OPEN` 默认为 `true`。修改已有节即可，不要重复添加该节。自动接管仅改变渲染入口；Canvas 正文暂不能直接编辑，编辑仍由 Typora 原生处理。
+设置 `AUTO_OPEN = false` 可以改成手动启动。设置 `RENDER_MODE = "canvas"` 可切回独立的实验性纯 Canvas 阅读器；这个模式还不能编辑、不兼容完整主题、公式与扩展语法，不应与默认混合模式混淆。
 
-禁用插件：
+禁用：`npm run uninstall:typora`，重启后生效，插件文件与备份保留。不要同时启用其他内容截断插件。
 
-```bash
-npm run uninstall:typora
-```
+## 搜索
 
-该命令将 `ENABLE` 设为 `false`，重启 Typora 生效。文件和备份保留，便于恢复。Typora 或插件框架更新后可能需要重新安装。
+默认混合模式使用 Typora 自带搜索，包括其正则开关。
 
-## 支持范围与限制
+独立 Canvas 阅读器也支持 `.*` 正则开关，默认忽略大小写，逐内容块按 JavaScript 多行 Unicode 正则匹配。匹配计数是块数，不是出现次数；跨块表达式暂不支持。搜索放在可终止的 Worker 中，超过 1 秒会取消，非法正则显示错误而不阻塞编辑界面。最多返回 5000 个匹配块。
 
-| 内容 / 功能 | 第一版行为 |
-| --- | --- |
-| 中文、英文、标题、粗体、斜体、删除线 | Canvas 文字排版 |
-| 列表、引用 | 基础缩进、前缀与引用线 |
-| 代码块 | 等宽字体与背景，不做语法高亮 |
-| Markdown 表格 | 等宽列、单元格换行，不复刻原生列宽算法 |
-| 图片 | 占位文字，不加载图片 |
-| 数学公式、Mermaid、其他图表 | 原始文本或代码，不渲染为图形 |
-| HTML | 当作文字，不执行脚本 |
-| 链接 | 文字着色，暂不能点击 |
-| 文本选择、复制、输入法、编辑、打印 | 返回 Typora 进行 |
-| 屏幕阅读器 | Canvas 正文暂不提供完整可访问文本，请返回 Typora |
-| Typora 主题、Callouts、脚注等扩展语法 | 不保证原生兼容 |
-
-全文解析和搜索仍是 O(n)，内存仍包含全文块模型。高度尚未测量时滚动条长度是估计值，快速远跳可能出现位置修正。浏览器的最大滚动高度仍构成上限。Canvas 不会消除 Typora 已有 DOM 和文档模型的内存占用，也不能加速 Typora 在插件启动前的首次打开过程。
-
-## 验证
+## 浏览器演示与验证
 
 ```bash
+npm run dev
 npm test
 npm run build
 npx playwright install chromium
 npm run test:browser
 ```
 
-浏览器测试默认使用 Playwright Chromium。也可通过 `PLAYWRIGHT_CHANNEL` 选择本机已安装的通道，例如 `msedge` 或 `chrome`，此时不需要下载 Chromium。测试覆盖高度索引、Unicode 分块、Markdown 解析、配置保留、自动接管与编辑回退，以及约 9000 块文档的滚动、缓存上限、搜索、窗口变化、内嵌区域边界和退出清理。结果保存在忽略提交的 `test-output/` 中。
+本地演示保留独立 Canvas 阅读器，可打开 Markdown 或生成压力测试文件。文件只在本机读取，不上传。
 
-也可通过 `PLAYWRIGHT_EXECUTABLE_PATH` 指定测试浏览器的可执行文件。
+浏览器测试默认使用 Playwright Chromium；也支持 `PLAYWRIGHT_CHANNEL`（如 msedge）或 `PLAYWRIGHT_EXECUTABLE_PATH` 指定现有浏览器。
 
-2026-11-05 的本机 Chromium 无头测试：1000 节生成文档共 9001 块，初始视口绘制 11 块，阅读器内 DOM 为 16 个节点，解析耗时约 102ms；初始、搜索后与缩放后三次采样绘制耗时约 3.3ms、0.8ms、0.6ms。这是合成文档的功能验证采样，不是持续滚动帧率基准，也不是 Typora 内的对照测试。用户已反馈实际使用流畅，仍需补充可复现的真实文档测量。
+验证覆盖：
+
+- 高度索引、Unicode 分块、Markdown 解析和配置保留。
+- 自动启动、初始渲染变更不关闭插件、源代码模式返回后恢复。
+- 独立阅读器长文档滚动、搜索、正则错误与灾难性回溯超时、窗口变化和退出。
+- 模拟宿主页面中的原位中文输入、原生撤销、输入法事件、主题切换。
+- 既有 SVG 公式、扩展语法 DOM、主题伪元素的保留与缓存清理。
+
+截图与测试数据在被 Git 忽略的 `test-output/`。这些是浏览器集成测试和模拟宿主接口测试，**不等于真实 Typora 中所有编辑、公式和主题都已完成验证，也没有混合模式的性能提升结论**。旧版 9001 块合成文档的 Canvas 绘制采样不能作为混合模式的性能数据。
 
 ## 后续方向
 
-- 用真实课程笔记对比 Typora 原生滚动，记录帧耗时与长任务。
-- 进入与退出时按源位置同步阅读位置。
-- 图片按需解码、公式缓存与复杂表格布局。
-- 文本命中测试、选区与可访问性方案。
-- 根据验证结果决定是否扩展到编辑模式。
+先在真实课程笔记上比较原生、混合和纯 Canvas 的滚动帧耗时、布局成本、长任务和内存。根据瓶颈决定向纯 Canvas 迁移的优先级：独立文档与选区模型、增量布局、中文输入、数学排版、复杂表格，以及主题兼容边界。
 
-Typora Canvas 是社区实验插件，与 Typora 官方无隶属关系。
+这是社区实验插件，与 Typora 官方无隶属关系。

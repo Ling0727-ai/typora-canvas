@@ -1,0 +1,19 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+body{margin:0;background:#fff;color:#243044;font:17px/1.7 Arial,"Microsoft YaHei",sans-serif}
+aside{position:fixed;left:0;top:0;width:200px;bottom:0;background:#eef2f7;padding:16px;box-sizing:border-box}
+#content{position:fixed;left:200px;right:0;top:0;bottom:0;overflow:auto}
+#write{max-width:700px;margin:0 auto;padding:40px 24px;outline:none}
+#write>p{margin:16px 0}#write .themed{color:rgb(180,20,90);background:rgb(230,240,220);border-left:5px solid #ac145a;padding:12px}
+.themed::before{content:"自定义 CSS · ";font-weight:bold}
+blockquote[data-callout]{border-left:4px solid #4c80d1;background:#edf3fb;padding:12px}
+mjx-container{display:block;padding:16px;background:#f6f2ff}
+body.dark{background:#18202b;color:#e6eef9}body.dark .themed{color:#eee;background:#253b39}
+</style></head><body><aside><strong>Typora 测试外壳</strong><p><button id="sidebar">侧栏操作</button></p></aside>
+<div id="content"><article id="write" contenteditable="true" spellcheck="false">
+<h1>原生内容与 Canvas 缓存</h1>
+<p class="themed" id="themed">中文主题颜色与伪元素必须保留。</p>
+<p id="editable">可以直接编辑这里。</p>
+<mjx-container id="math" contenteditable="false"><svg xmlns="http://www.w3.org/2000/svg" width="180" height="60" viewBox="0 0 180 60"><text x="5" y="38" fill="#6644aa" font-family="serif" font-size="28">∫ x² dx = x³/3</text></svg></mjx-container>
+<blockquote data-callout="note" contenteditable="false" id="callout"><strong>扩展语法</strong><p>已经由宿主渲染的内容。</p></blockquote>
+<p id="tail">正则测试：alpha123 与 beta456。</p>
+</article></div></body></html>

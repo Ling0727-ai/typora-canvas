@@ -1,6 +1,6 @@
 import { chromium } from 'playwright';
 import { spawn } from 'node:child_process';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, writeFile, readFile } from 'node:fs/promises';
 import assert from 'node:assert/strict';
 
 const server = spawn(process.execPath, ['scripts/serve.mjs'], { stdio: 'pipe', env: { ...process.env, PORT: '4174' } });
@@ -77,14 +77,78 @@ try {
   await host.getByText('1/2 块', { exact: true }).waitFor();
   await page.keyboard.press('Enter');
   await host.getByText('2/2 块', { exact: true }).waitFor();
+  await host.getByRole('button', { name: '正则表达式', exact: true }).click();
+  await host.getByRole('searchbox').fill('^Second( match\\.)?$');
+  await host.getByText('1/2 块', { exact: true }).waitFor();
+  await host.getByRole('searchbox').fill('[');
+  await host.locator('.matches').filter({ hasText: '搜索错误' }).waitFor();
   await page.keyboard.press('Escape');
   assert.equal(await host.locator('header').isVisible(), false);
   assert.equal(await host.count(), 1);
   await page.screenshot({ path: 'test-output/embedded.png' });
   await page.keyboard.press('Escape');
   assert.equal(await host.count(), 0);
+  await page.setContent(await readFile('test/fixtures/native.html', 'utf8'));
+  await page.addScriptTag({ content: 'window.module = { exports: {} };' });
+  await page.addScriptTag({ path: 'dist/plugin/canvas_reader/runtime.cjs' });
+  const regexSafety = await page.evaluate(async () => {
+    const search = new window.module.exports.BlockSearch();
+    let heartbeat = false, error = '';
+    setTimeout(() => { heartbeat = true; }, 20);
+    try { await search.search(['a'.repeat(30000) + '!'], '^(a+)+$', { regex: true }); }
+    catch (e) { error = e.message; }
+    const result = await search.search(['alpha123'], '^alpha\\d+$', { regex: true });
+    return { heartbeat, error, blocks: result.blocks };
+  });
+  assert.equal(regexSafety.heartbeat, true);
+  assert.ok(regexSafety.error.includes('超时'));
+  assert.deepEqual(regexSafety.blocks, [0]);
+  const original = await page.locator('#write').innerHTML();
+  const themeBox = await page.locator('#themed').boundingBox();
+  await page.screenshot({ path: 'test-output/native-before.png' });
+  await page.evaluate(() => {
+    window.hybrid = window.module.exports.mountHybrid({ content: document.querySelector('#content'), write: document.querySelector('#write'), idleDelay: 20 });
+  });
+  await page.waitForFunction(() => window.hybrid.getStats().captures > 0 && window.hybrid.getStats().hiddenBlocks > 0);
+  // Cached snapshots use native geometry/CSS. Complex math/extensions stay live.
+  assert.deepEqual(await page.locator('#themed').boundingBox(), themeBox);
+  assert.equal(await page.locator('#math').evaluate(el => getComputedStyle(el).opacity), '1');
+  assert.equal(await page.locator('#callout').evaluate(el => getComputedStyle(el).opacity), '1');
+  const hybridStats = await page.evaluate(() => window.hybrid.getStats());
+  assert.ok(hybridStats.hiddenBlocks > 0, JSON.stringify(hybridStats));
+  assert.ok(hybridStats.cacheBytes <= 24 * 1024 * 1024);
+  await page.screenshot({ path: 'test-output/hybrid-cached.png', caret: 'initial' });
+  // A click edits at the native caret; no mode-switch hotkey is necessary.
+  await page.locator('#editable').click();
+  assert.equal(await page.locator('.tc-hybrid-cached').count(), 0);
+  assert.equal(await page.locator('#write').getAttribute('contenteditable'), 'true');
+  await page.keyboard.press('End');
+  await page.keyboard.insertText('直接输入中文');
+  assert.ok((await page.locator('#editable').innerText()).includes('直接输入中文'));
+  await page.keyboard.press('Control+z');
+  assert.ok(!(await page.locator('#editable').innerText()).includes('直接输入中文'));
+  // IME events never replace the editable subtree or focus a Canvas surrogate.
+  await page.locator('#write').dispatchEvent('compositionstart');
+  assert.equal((await page.evaluate(() => window.hybrid.getStats())).hiddenBlocks, 0);
+  await page.locator('#write').dispatchEvent('compositionend');
+  const passedThrough = await page.locator('#write').evaluate(el => {
+    const event = new KeyboardEvent('keydown', { key: 'f', ctrlKey: true, bubbles: true, cancelable: true });
+    el.dispatchEvent(event); return !event.defaultPrevented;
+  });
+  assert.equal(passedThrough, true, 'native find/regex shortcuts must reach Typora');
+  await page.locator('#sidebar').click();
+  await page.waitForFunction(() => window.hybrid.getStats().hiddenBlocks > 0);
+  // Theme changes invalidate bitmaps; formulas and native CSS are not re-parsed.
+  await page.evaluate(() => document.body.classList.add('dark'));
+  await page.waitForTimeout(150);
+  await page.screenshot({ path: 'test-output/hybrid-dark.png', caret: 'initial' });
+  await page.evaluate(() => window.hybrid.destroy());
+  assert.equal(await page.locator('[data-typora-canvas-hybrid]').count(), 0);
+  assert.equal(await page.locator('.tc-hybrid-cached').count(), 0);
+  // Chromium's native contenteditable undo may leave semantically empty style="".
+  assert.equal((await page.locator('#write').innerHTML()).replace(/ style=""/g, ''), original);
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ passed: true, initial, searched, resized }, null, 2));
+  console.log(JSON.stringify({ passed: true, initial, searched, resized, hybridStats }, null, 2));
 } finally {
   await browser?.close(); server.kill();
 }

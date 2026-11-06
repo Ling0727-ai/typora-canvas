@@ -2,6 +2,7 @@ import { parseMarkdown } from './markdown.js';
 import { HeightIndex } from './height-index.js';
 import { LruCache, estimateHeight, layoutBlock } from './layout.js';
 import css from './reader.css';
+import { BlockSearch } from './search.js';
 
 export function mountReader({ markdown, title = 'Typora Canvas', onClose = () => {}, parent = document.body, embedded = false }) {
   const started = performance.now();
@@ -15,6 +16,7 @@ export function mountReader({ markdown, title = 'Typora Canvas', onClose = () =>
   root.innerHTML = `<style>${css}</style><section class="reader" aria-label="Typora Canvas 阅读模式">
     <header><strong>Typora Canvas</strong><span class="title"></span>
     <input type="search" placeholder="搜索全文 · Ctrl+F" aria-label="搜索全文">
+    <button class="regex" aria-label="正则表达式" aria-pressed="false" title="正则表达式（逐块匹配）">.*</button>
     <button class="previous" title="上一个 · Shift+Enter">↑</button><button class="next" title="下一个 · Enter">↓</button>
     <span class="matches"></span><button class="close">返回编辑 · Esc</button></header>
     <div class="notice">Canvas 阅读预览 · 公式与图片显示为源码或占位文字；选取、复制和完整排版请返回编辑。</div>
@@ -31,6 +33,9 @@ export function mountReader({ markdown, title = 'Typora Canvas', onClose = () =>
   const search = root.querySelector('input');
   const footer = root.querySelector('footer');
   const matches = root.querySelector('.matches');
+  const regex = root.querySelector('.regex');
+  const engine = new BlockSearch();
+  let searchGeneration = 0;
   const ctx = canvas.getContext('2d');
   if (!ctx) { host.remove(); throw new Error('Canvas 2D is unavailable'); }
   const layouts = new LruCache(256);
@@ -147,12 +152,22 @@ export function mountReader({ markdown, title = 'Typora Canvas', onClose = () =>
     scrollToBlock(hits[hitPosition]);
     matches.textContent = `${hitPosition + 1}/${hits.length} 块`;
   }
-  function find() {
-    const query = search.value.trim().toLocaleLowerCase();
-    hits = query ? blocks.flatMap((b, i) => b.text.toLocaleLowerCase().includes(query) ? [i] : []) : [];
-    hitSet = new Set(hits); hitPosition = -1;
-    matches.textContent = query ? '0/0 块' : '';
-    moveHit(1); schedule();
+  async function find() {
+    const generation = ++searchGeneration;
+    const query = search.value;
+    hits = []; hitSet = new Set(); hitPosition = -1;
+    matches.textContent = query ? '搜索中…' : '';
+    try {
+      const result = await engine.search(blocks.map(b => b.text), query, { regex: regex.getAttribute('aria-pressed') === 'true' });
+      if (destroyed || generation !== searchGeneration) return;
+      hits = result.blocks; hitSet = new Set(hits);
+      matches.textContent = query ? '0/0 块' : '';
+      matches.title = result.truncated ? '仅显示前 5000 个匹配块' : '';
+      moveHit(1); schedule();
+    } catch (error) {
+      if (destroyed || generation !== searchGeneration) return;
+      matches.textContent = `搜索错误：${error.message}`; schedule();
+    }
   }
   const close = () => { destroy(); onClose(); };
   const onKey = event => {
@@ -179,6 +194,7 @@ export function mountReader({ markdown, title = 'Typora Canvas', onClose = () =>
   root.querySelector('.close').onclick = close;
   root.querySelector('.previous').onclick = () => moveHit(-1);
   root.querySelector('.next').onclick = () => moveHit(1);
+  regex.onclick = () => { regex.setAttribute('aria-pressed', String(regex.getAttribute('aria-pressed') !== 'true')); find(); };
   search.oninput = () => { clearTimeout(searchTimer); searchTimer = setTimeout(() => { searchTimer = 0; find(); }, 120); };
   scroll.addEventListener('scroll', schedule, { passive: true });
   const observer = new ResizeObserver(resize);
@@ -186,6 +202,7 @@ export function mountReader({ markdown, title = 'Typora Canvas', onClose = () =>
   function destroy() {
     if (destroyed) return;
     destroyed = true; cancelAnimationFrame(raf); clearTimeout(searchTimer);
+    searchGeneration++; engine.cancel();
     observer.disconnect(); window.removeEventListener('keydown', onKey, true);
     scroll.removeEventListener('scroll', schedule); layouts.clear(); measures.clear(); host.remove();
   }

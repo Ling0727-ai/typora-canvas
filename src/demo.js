@@ -1,6 +1,8 @@
 import { mountReader } from './reader.js';
+import { mountHybrid } from './hybrid.js';
 // Also expose the mounting API for the standalone integration harness.
 window.mountCanvasReader = mountReader;
+window.mountCanvasHybrid = mountHybrid;
 
 let reader;
 const status = document.querySelector('#status');

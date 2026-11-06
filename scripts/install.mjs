@@ -14,7 +14,8 @@ export function configure(raw, enable) {
   const pattern = /^\[canvas_reader\][^\r\n]*\r?\n[\s\S]*?(?=^\[|$(?![\s\S]))/m;
   let section = raw.match(pattern)?.[0] || '[canvas_reader]\n';
   const values = { ENABLE: String(enable), NAME: '"Typora Canvas"', HOTKEY: '"ctrl+alt+shift+f8"',
-    AUTO_OPEN: before.canvas_reader?.AUTO_OPEN === false ? 'false' : 'true' };
+    AUTO_OPEN: before.canvas_reader?.AUTO_OPEN === false ? 'false' : 'true',
+    RENDER_MODE: before.canvas_reader?.RENDER_MODE === 'canvas' ? '"canvas"' : '"hybrid"' };
   for (const [key, value] of Object.entries(values)) {
     if (!enable && key !== 'ENABLE') continue;
     const assignment = new RegExp(`^${key}\\s*=.*$`, 'm');
@@ -56,7 +57,8 @@ async function main() {
   if (enabled) {
     // Check the host's CommonJS loader can read the compiled artifact.
     const require = createRequire(import.meta.url);
-    if (typeof require(join(repo, 'dist/plugin/canvas_reader/runtime.cjs')).mountReader !== 'function') throw new Error('Invalid runtime bundle');
+    const runtime = require(join(repo, 'dist/plugin/canvas_reader/runtime.cjs'));
+    if (typeof runtime.mountReader !== 'function' || typeof runtime.mountHybrid !== 'function') throw new Error('Invalid runtime bundle');
   }
   const backup = join(homedir(), '.config/typora-canvas/backups', new Date().toISOString().replace(/[:.]/g, '-'));
   console.log(JSON.stringify({ action: enabled ? 'install' : 'disable', resources, config, backup }, null, 2));
@@ -82,7 +84,7 @@ async function main() {
     else if (enabled) await rm(targetAssets, { recursive: true, force: true });
     throw error;
   }
-  console.log(enabled ? '安装完成。保存笔记并重启 Typora，文档默认在原正文区域自动使用 Canvas 渲染；Esc 返回编辑，Ctrl+Alt+Shift+F8 手动切换。' : '已禁用。重启 Typora 后生效，插件文件保留，便于恢复。');
+  console.log(enabled ? '安装完成。保存笔记并重启 Typora，默认混合渲染，原生公式/CSS/编辑/正则搜索保留。Ctrl+Alt+Shift+F8 切换加速开关。' : '已禁用。重启 Typora 后生效，插件文件保留，便于恢复。');
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   main().catch(error => { console.error(error.message); process.exitCode = 1; });
