@@ -23,9 +23,10 @@ test('emphasis recursively preserves equations and their exact source ranges', (
   assert.equal(active.map(r => r.text).join(''), '**$a$**');
 });
 
-test('the fatigue derivation groups all multiline formulas and retains literal source on failure', () => {
-  const source = readFileSync(new URL('./fixtures/fatigue-math.md', import.meta.url), 'utf8');
-  const doc = new CanvasDocument(source).doc, rows = classifyLines(doc);
+for (const eol of ['\n', '\r\n']) test(`the fatigue derivation retains formula source on failure (${eol === '\n' ? 'LF' : 'CRLF'})`, () => {
+  const source = readFileSync(new URL('./fixtures/fatigue-math.md', import.meta.url), 'utf8').replace(/\r?\n/g, eol);
+  const model = new CanvasDocument(source), doc = model.doc, rows = classifyLines(doc);
+  assert.equal(model.getText(), source, 'line terminators remain byte-exact in the document');
   const blocks = rows.filter(r => r.type === 'math');
   assert.equal(blocks.length, 3);
   assert.ok(blocks[0].tex.endsWith('=-\\varphi_\\sigma'));
@@ -35,7 +36,7 @@ test('the fatigue derivation groups all multiline formulas and retains literal s
     const text = doc.line(i + 1).text;
     const result = layoutSourceLine({ font: '' }, text, rows[i], { width: 300, raw: true,
       asset: () => ({ status: 'error' }), measure: (_, value) => value.length * 10 });
-    assert.equal(result.lines.flatMap(l => l.pieces).map(p => p.text).join(''), text);
+    assert.equal(result.lines.flatMap(l => l.pieces).map(p => p.text).join(''), text.replace(/\r$/, ''), 'CR is a line terminator, not visible formula source');
     assert.ok(result.lines.every(l => l.pieces.every(p => p.x + p.width <= 300)));
   }
 });
