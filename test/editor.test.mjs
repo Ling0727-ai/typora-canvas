@@ -49,6 +49,19 @@ test('MathJax produces self-contained SVG paths, rather than DOM screenshots', (
   assert.ok(result.svg.includes('<path'));
   assert.ok(!result.svg.includes('<foreignObject'));
   assert.ok(result.width > 20 && result.height > 20);
+  assert.ok(result.depth >= 0); assert.ok(result.ascent > 0);
+  assert.ok(Math.abs(result.ascent + result.depth - result.height) < .001);
+});
+
+test('inline formula ascent/depth share the text baseline and display math is centered', () => {
+  const media = { image: {}, width: 30, height: 40, ascent: 28, depth: 12 };
+  const options = { width: 300, raw: false, asset: () => media, measure: (_, text) => text.length * 10 };
+  const layout = layoutSourceLine({ font: '' }, 'a $x$ b', { type: 'paragraph' }, options);
+  const visual = layout.lines[0], formula = visual.pieces.find(p => p.media);
+  assert.equal(visual.baseline, 28); assert.equal(visual.height, 40);
+  assert.equal(visual.top + visual.baseline - formula.ascent + formula.ascent, visual.top + visual.baseline);
+  const block = layoutSourceLine({ font: '' }, '$$x$$', { type: 'math', tex: 'x' }, options);
+  assert.equal(block.mediaX, 135);
 });
 
 test('inline alpha previews after the closing delimiter and expands only inside the formula', () => {

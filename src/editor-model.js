@@ -1,4 +1,5 @@
 import { Text } from '@codemirror/state';
+import { calloutContexts } from './callouts.js';
 
 // Immutable rope snapshots preserve Markdown verbatim, including unknown syntax
 // and existing CRLF. No rich-text-to-Markdown serialization is involved.
@@ -64,23 +65,29 @@ export function inputDiff(before, after) {
   return { from, to: oldEnd, text: after.slice(from, newEnd) };
 }
 
-export function classifyLines(doc) {
+export function classifyLines(doc, { customCallouts = true } = {}) {
+  const { contexts, groups } = calloutContexts(doc, { customEnabled: customCallouts });
+  const texts = contexts.map(c => c.content);
   const rows = [];
-  let fence = null, mathStart = -1;
+  let fence = null, mathStart = -1, fenceGroup = null, mathGroup = null;
   for (let n = 1; n <= doc.lines; n++) {
-    const text = doc.line(n).text;
+    const text = texts[n - 1];
+    const path = contexts[n - 1].callouts;
+    if (fenceGroup && !path.some(group => group.id === fenceGroup)) { fence = null; fenceGroup = null; }
+    if (mathGroup && !path.some(group => group.id === mathGroup)) { mathStart = -1; mathGroup = null; }
     const row = { type: 'paragraph', level: 0, revision: 0 };
     const marker = /^\s*(`{3,}|~{3,})/.exec(text);
-    if (fence) {
+    if (contexts[n - 1].calloutHeader) row.type = 'callout-title';
+    else if (fence) {
       row.type = 'code';
       if (marker && marker[1][0] === fence[0] && marker[1].length >= fence.length) fence = null;
-    } else if (marker) { fence = marker[1]; row.type = 'code'; }
+    } else if (marker) { fence = marker[1]; fenceGroup = path.at(-1)?.id || null; row.type = 'code'; }
     else if (/^\s*\$\$\s*$/.test(text)) {
-      if (mathStart < 0) { mathStart = n - 1; row.type = 'math'; }
+      if (mathStart < 0) { mathStart = n - 1; mathGroup = path.at(-1)?.id || null; row.type = 'math'; }
       else {
-        const tex = doc.sliceString(doc.line(mathStart + 1).to + 1, doc.line(n).from).trim();
-        rows[mathStart] = { type: 'math', tex, end: n - 1, revision: 0 };
-        for (let i = mathStart + 1; i < n - 1; i++) rows[i] = { type: 'math-tail', start: mathStart, end: n - 1, revision: 0 };
+        const tex = texts.slice(mathStart + 1, n - 1).join('\n').trim();
+        rows[mathStart] = { ...rows[mathStart], type: 'math', tex, end: n - 1, revision: 0 };
+        for (let i = mathStart + 1; i < n - 1; i++) rows[i] = { ...rows[i], type: 'math-tail', start: mathStart, end: n - 1, revision: 0 };
         row.type = 'math-tail'; row.start = mathStart; row.end = n - 1; mathStart = -1;
       }
     } else if (mathStart >= 0) row.type = 'paragraph';
@@ -93,21 +100,24 @@ export function classifyLines(doc) {
       else if (heading) Object.assign(row, { type: 'heading', level: heading[1].length });
       else if (/^\s*>/.test(text)) row.type = 'quote';
     }
-    rows.push(row);
+    rows.push({ ...row, ...contexts[n - 1] });
   }
   for (let i = 0; i < rows.length - 1; i++) {
     if (rows[i].type !== 'paragraph' || rows[i + 1].type !== 'paragraph') continue;
-    const header = tableCells(doc.line(i + 1).text), separator = tableCells(doc.line(i + 2).text);
+    if (rows[i].callouts.at(-1)?.id !== rows[i + 1].callouts.at(-1)?.id) continue;
+    const header = tableCells(texts[i]), separator = tableCells(texts[i + 1]);
     if (!header.length || header.length !== separator.length || !separator.every(c => /^:?-{3,}:?$/.test(c.text))) continue;
     const alignments = separator.map(c => c.text.startsWith(':') && c.text.endsWith(':') ? 'center' : c.text.endsWith(':') ? 'right' : 'left');
-    rows[i] = { type: 'table', columns: header.length, header: true, alignments, revision: 0 };
-    rows[i + 1] = { type: 'table-separator', revision: 0 };
+    rows[i] = { ...rows[i], type: 'table', columns: header.length, header: true, alignments, revision: 0 };
+    rows[i + 1] = { ...rows[i + 1], type: 'table-separator', revision: 0 };
     let end = i + 2;
-    while (end < rows.length && rows[end].type === 'paragraph' && tableCells(doc.line(end + 1).text).length > 1) {
-      rows[end] = { type: 'table', columns: header.length, alignments, revision: 0 }; end++;
+    while (end < rows.length && rows[end].type === 'paragraph' &&
+        rows[end].callouts.at(-1)?.id === rows[i].callouts.at(-1)?.id && tableCells(texts[end]).length >= header.length) {
+      rows[end] = { ...rows[end], type: 'table', columns: header.length, alignments, revision: 0 }; end++;
     }
     i = end - 1;
   }
+  rows.calloutGroups = groups;
   return rows;
 }
 

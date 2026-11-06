@@ -1,5 +1,6 @@
 const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
 import { tableCells } from './editor-model.js';
+import { defaultCalloutTheme, calloutSpec } from './callouts.js';
 export const editorFont = '"Segoe UI", "Microsoft YaHei", sans-serif';
 
 // Inactive lines elide common Markdown markers; the active source line is exact.
@@ -41,7 +42,39 @@ export function sourceRuns(text, row, raw, cursor = -1, selection = null) {
   return runs;
 }
 
-export function layoutSourceLine(ctx, text, row, { width, raw, font = editorFont, size = 17, asset, measure, cursor = -1, selection = null }) {
+export function layoutSourceLine(ctx, text, row, { width, raw, font = editorFont, size = 17, asset, measure, cursor = -1,
+  selection = null, calloutTheme = defaultCalloutTheme() }) {
+  if (row.callouts?.length) {
+    const group = row.callouts.at(-1), spec = calloutSpec(calloutTheme, group.type), header = row.calloutHeader;
+    const editingHeader = !!header && raw && (cursor > 0 && cursor < text.length || selection?.from !== selection?.to);
+    const sourceOffset = header ? editingHeader ? 0 : group.titleFrom : row.sourceOffset;
+    const label = header && !editingHeader ? group.title : text.slice(sourceOffset);
+    const indent = row.callouts.reduce((sum, g) => sum + calloutSpec(calloutTheme, g.type).paddingLeft + 2, 0);
+    const iconWidth = header && !editingHeader ? spec.iconSize + 8 : 0;
+    const topGap = header ? Math.min(32, spec.marginTop) : 0;
+    const bottomGap = row.callouts.some(g => g.end === row.sourceLine) ? 8 : 0;
+    const value = layoutSourceLine(ctx, label, { ...row, type: header ? 'paragraph' : row.type,
+      header: !!header, callouts: [], sourceOffset: 0 }, {
+      width: Math.max(24, width - indent - iconWidth), raw: header && !editingHeader ? false : raw,
+      font, size: header && spec.titleSize ? spec.titleSize : size, measure,
+      cursor: cursor - sourceOffset,
+      selection: selection ? { from: selection.from - sourceOffset, to: selection.to - sourceOffset } : null,
+      asset: (type, source, display) => asset(type, source, display, header ? spec.color : undefined) });
+    const offsetX = indent + iconWidth;
+    for (const line of value.lines) {
+      line.top += topGap;
+      for (const p of line.pieces) {
+        p.x += offsetX; p.from += sourceOffset; p.to += sourceOffset;
+        if (header) p.color = spec.color;
+      }
+    }
+    if (value.cells) for (const cell of value.cells) { cell.x += offsetX; cell.from += sourceOffset; cell.to += sourceOffset; }
+    value.height += topGap + bottomGap; value.top += topGap;
+    value.mediaX = offsetX + (value.mediaX || 0); value.inset = offsetX;
+    value.calloutTitle = header && !editingHeader ? { spec, x: indent, y: topGap + 5 } : null;
+    value.calloutTopGap = topGap; value.calloutBottomGap = bottomGap;
+    return value;
+  }
   const fontSize = row.type === 'heading' ? Math.max(size, 32 - row.level * 2) : size;
   const lineHeight = Math.ceil(fontSize * 1.7), top = row.type === 'heading' ? 16 : 5, bottom = 7;
   if (!raw && ['math-tail', 'table-separator'].includes(row.type)) return { height: 0.01, lines: [], top: 0, lineHeight, fontSize };
@@ -70,19 +103,27 @@ export function layoutSourceLine(ctx, text, row, { width, raw, font = editorFont
     if (media?.image) {
       const ratio = Math.min(1, width / media.width, 1200 / media.height);
       return { height: media.height * ratio + 24, lines: [], media, mediaWidth: media.width * ratio,
-        mediaHeight: media.height * ratio, top: 12, lineHeight, fontSize };
+        mediaHeight: media.height * ratio, mediaX: row.type === 'math' ? Math.max(0, (width - media.width * ratio) / 2) : 0,
+        top: 12, lineHeight, fontSize };
     }
   }
   const lines = [];
-  let pieces = [], x = 0, y = top, lineMax = lineHeight;
-  const finish = () => { lines.push({ pieces, top: y, height: lineMax }); y += lineMax; x = 0; pieces = []; lineMax = lineHeight; };
+  let pieces = [], x = 0, y = top, ascent = lineHeight * .8, descent = lineHeight * .2;
+  const finish = () => {
+    const height = ascent + descent;
+    lines.push({ pieces, top: y, height, baseline: ascent }); y += height;
+    x = 0; pieces = []; ascent = lineHeight * .8; descent = lineHeight * .2;
+  };
   for (const run of sourceRuns(text.replace(/\r$/, ''), row, raw, cursor, selection)) {
     if (run.tex) {
       const media = asset('math', run.tex, false);
       if (media?.image) {
         const w = Math.min(width, media.width), h = media.height * w / media.width;
         if (x && x + w > width) finish();
-        pieces.push({ ...run, x, width: w, media, height: h }); x += w; lineMax = Math.max(lineMax, h + 4); continue;
+        const scale = w / media.width, mediaAscent = (media.ascent ?? media.height * .8) * scale;
+        const mediaDescent = (media.depth ?? media.height * .2) * scale;
+        pieces.push({ ...run, x, width: w, media, height: h, ascent: mediaAscent }); x += w;
+        ascent = Math.max(ascent, mediaAscent); descent = Math.max(descent, mediaDescent); continue;
       }
       // A pending or failed formula retains its complete delimiters. Do not
       // silently turn $\\alpha$ into bare text \\alpha while waiting for SVG.
@@ -122,7 +163,7 @@ export function caretSource(layout, position) {
     const caret = caretSource(cell.layout, Math.max(0, Math.min(cell.text.length, position - cell.from)));
     return { ...caret, x: cell.x + 8 + caret.x, y: 5 + caret.y };
   }
-  if (!layout.lines.length) return { x: position ? layout.mediaWidth || 0 : 0, y: layout.top, height: layout.lineHeight };
+  if (!layout.lines.length) return { x: (layout.mediaX || 0) + (position ? layout.mediaWidth || 0 : 0), y: layout.top, height: layout.lineHeight };
   let result;
   for (const line of layout.lines) {
     for (const piece of line.pieces) if (position >= piece.from && position <= piece.to) {

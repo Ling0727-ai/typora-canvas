@@ -2,6 +2,7 @@ import { chromium } from 'playwright';
 import { spawn } from 'node:child_process';
 import { mkdir, writeFile, readFile } from 'node:fs/promises';
 import assert from 'node:assert/strict';
+import { testCalloutsAndTheme } from './callouts-browser.mjs';
 
 const server = spawn(process.execPath, ['scripts/serve.mjs'], { stdio: 'pipe', env: { ...process.env, PORT: '4174' } });
 let browser;
@@ -233,6 +234,7 @@ try {
   assert.ok(bigAfter.cachedLayouts <= 256);
   await page.evaluate(() => window.pure.destroy());
   assert.equal(await page.locator('[data-typora-canvas-editor]').count(), 0);
+  await testCalloutsAndTheme(page);
   assert.deepEqual(errors, []);
   console.log(JSON.stringify({ passed: true, initial, searched, resized, hybridStats, pureStats, bigAfter }, null, 2));
 } finally {

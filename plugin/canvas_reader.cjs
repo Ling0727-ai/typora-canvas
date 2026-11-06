@@ -99,15 +99,15 @@ class CanvasReaderPlugin extends BasePlugin {
       this.content.style.overflow = 'hidden';
       this.content.scrollTop = 0;
       if (mode === 'canvas-editor') {
-        const nativeStyle = getComputedStyle(this.rendererWrite);
+        const getTheme = () => runtime.readCanvasTheme({ write: this.rendererWrite, content: this.content,
+          calloutConfig: this.utils.getPlugin?.('callouts')?.config || { ENABLE: false } });
         this.reader = runtime.mountCanvasEditor({ markdown, parent: this.content, embedded: true, onClose: this.close,
           initialDirty: typeof File.isDocumentEdited === 'function' ? File.isDocumentEdited() : !!File.needSaveState,
           onChange: () => this.canvasBridge?.changed(), onSave: () => this.canvasBridge.save(),
           resolveImage: source => {
             if (/^(?:https?:|data:|blob:|file:)/i.test(source)) return source;
             return require('url').pathToFileURL(this.utils.resolveLocalPath(decodeURI(source))).href;
-          }, theme: { color: nativeStyle.color, fontFamily: nativeStyle.fontFamily, fontSize: nativeStyle.fontSize,
-            background: getComputedStyle(document.body).backgroundColor === 'rgba(0, 0, 0, 0)' ? '#fafbfd' : getComputedStyle(document.body).backgroundColor } });
+          }, theme: getTheme(), getTheme });
         this.canvasBridge = runtime.attachCanvasHost({ file: File, editor: this.reader,
           onConflict: message => this.reader?.setStatus(message), onRecovery: source => {
           const fs = require('fs'), path = require('path');
