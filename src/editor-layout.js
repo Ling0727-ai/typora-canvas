@@ -1,6 +1,7 @@
 const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
 import { tableCells } from './editor-model.js';
 import { defaultCalloutTheme, calloutSpec } from './callouts.js';
+import { displayMathGeometry } from './math-geometry.js';
 export const editorFont = '"Segoe UI", "Microsoft YaHei", sans-serif';
 
 // Inactive lines elide common Markdown markers; the active source line is exact.
@@ -143,6 +144,7 @@ export function layoutSourceLine(ctx, text, row, { width, raw, font = editorFont
   if (!raw && (row.type === 'image' || row.type === 'math') && (row.tex !== undefined || row.url)) {
     const media = asset(row.type, row.tex || row.url, true);
     if (media?.image) {
+      if (row.type === 'math') return { ...displayMathGeometry(media, width, fontSize), lines: [], media, lineHeight, fontSize };
       const ratio = Math.min(1, width / media.width, 1200 / media.height);
       return { height: media.height * ratio + 24, lines: [], media, mediaWidth: media.width * ratio,
         mediaHeight: media.height * ratio, mediaX: row.type === 'math' ? Math.max(0, (width - media.width * ratio) / 2) : 0,

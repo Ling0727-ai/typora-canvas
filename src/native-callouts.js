@@ -1,6 +1,7 @@
 import MarkdownIt from 'markdown-it';
 import { toCanvas } from 'html-to-image';
 import { FormulaEngine } from './formula-client.js';
+import { displayMathGeometry } from './math-geometry.js';
 
 // Run a second, unregistered instance of the installed plugin with scoped
 // entities. Its lifecycle/hotkeys never run and its original instance is intact.
@@ -31,12 +32,12 @@ export function createNativeCalloutRenderer({ write, plugin }) {
     const first = state.getLines(line, line + 1, state.blkIndent, false).trim();
     if (!first.startsWith('$$')) return false;
     let text = first.slice(2), next = line + 1;
-    while (!text.endsWith('$$') && next < end) text += '\n' + state.getLines(next, ++next, state.blkIndent, false);
+    while (!text.trimEnd().endsWith('$$') && next < end) text += '\n' + state.getLines(next, ++next, state.blkIndent, false).replace(/\n$/, '');
     if (!text.trimEnd().endsWith('$$')) return false;
     if (silent) return true;
     const token = state.push('canvas_display_math', '', 0); token.content = text.trimEnd().slice(0, -2); token.map = [line, next];
     state.line = next; return true;
-  });
+  }, { alt: ['paragraph', 'reference', 'blockquote', 'list'] });
   md.renderer.rules.canvas_display_math = (tokens, i) => `<div data-tc-line="${tokens[i].map[0]}">${mathHtml(tokens[i].content, true)}</div>`;
   // Preserve native paragraph/softbreak structure, including the marker span
   // consumed by Callouts.decorateTitle. Attributes only map pixels to source.
@@ -107,12 +108,28 @@ export function createNativeCalloutRenderer({ write, plugin }) {
       const formulaErrors = [];
       await Promise.all([...stage.querySelectorAll('[data-tc-math]')].map(async node => {
         const display = node.dataset.display === 'true', style = getComputedStyle(node);
+        const size = parseFloat(style.fontSize) || 17;
         if (display) Object.assign(node.style, { display: 'block', textAlign: 'center' });
         try {
-          const result = await formulas.render(node.dataset.tcMath, { display, size: parseFloat(style.fontSize) || 17, color: style.color });
+          const result = await formulas.render(node.dataset.tcMath, { display, size, color: style.color });
           const svg = new DOMParser().parseFromString(result.svg, 'image/svg+xml').documentElement;
           Object.assign(svg.style, { width: `${result.width}px`, height: `${result.height}px`, verticalAlign: `-${result.depth}px` });
           node.replaceChildren(doc.importNode(svg, true));
+          if (display) {
+            // Block SVGs participate in normal flow with their full, scaled
+            // height. Baseline/depth adjustment is only for inline formulas.
+            const image = node.firstElementChild;
+            const box = displayMathGeometry(result, node.getBoundingClientRect().width, size);
+            const set = (el, rules) => {
+              for (const [key, value] of Object.entries(rules)) el.style.setProperty(key, value, 'important');
+            };
+            set(node, { display: 'block', height: 'auto', 'min-height': '0', 'max-height': 'none',
+              'box-sizing': 'content-box', 'line-height': '0', margin: '0',
+              padding: `${box.top}px 0 ${box.bottom}px`, overflow: 'visible' });
+            set(image, { display: 'block', position: 'static', width: `${box.mediaWidth}px`, height: `${box.mediaHeight}px`,
+              'min-height': '0', 'max-height': 'none', 'max-width': 'none', margin: '0 auto', padding: '0',
+              'vertical-align': '0', 'box-sizing': 'content-box' });
+          }
         } catch (error) {
           // Keep the successful equations and the plugin's decorated block.
           // A single bad equation must not discard and recapture the Callout.

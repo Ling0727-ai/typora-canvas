@@ -7,6 +7,7 @@ import { testTableToolbar } from './table-toolbar-browser.mjs';
 import { testNativeCallouts } from './native-callouts-browser.mjs';
 import { testBlocksAndTheme } from './blocks-browser.mjs';
 import { testFormulaIsolation } from './formulas-browser.mjs';
+import { testDisplayMathSpacing } from './math-spacing-browser.mjs';
 
 const server = spawn(process.execPath, ['scripts/serve.mjs'], { stdio: 'pipe', env: { ...process.env, PORT: '4174' } });
 let browser;
@@ -243,6 +244,7 @@ try {
   await testBlocksAndTheme(page);
   await testFormulaIsolation(page);
   await testNativeCallouts(page);
+  await testDisplayMathSpacing(page);
   assert.deepEqual(errors, []);
   console.log(JSON.stringify({ passed: true, initial, searched, resized, hybridStats, pureStats, bigAfter }, null, 2));
 } finally {
