@@ -16,3 +16,7 @@ main { position: relative; flex: 1; min-height: 0; overflow: hidden; }
 .spacer { width: 1px; pointer-events: none; }
 canvas { position: absolute; inset: 0; pointer-events: none; }
 footer { padding: 6px 18px; border-top: 1px solid #dce2eb; color: #68768a; font: 12px Consolas, monospace; }
+.embedded header, .embedded .notice, .embedded footer { display: none; }
+.embedded.search-open header { display: flex; }
+.embedded header strong, .embedded header .title { display: none; }
+.embedded input { flex: 1; width: auto; }

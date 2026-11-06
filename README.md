@@ -4,7 +4,7 @@
 
 > A Canvas-based rendering plugin for Typora, built for smooth scrolling through large Markdown documents.
 
-**状态：0.1.0 原型。** 阅读模式使用独立的文档模型与 Canvas 2D 绘制；按 Escape 返回 Typora 编辑。它不是完整编辑器，也不承诺与 Typora 原生排版一致。目前没有真实文档上的性能对照结果。
+**状态：开发中的原型。** 当前 `main` 默认在 Typora 原正文区域内自动使用 Canvas 2D 绘制，不添加窗口或全屏阅读界面；保留宿主侧栏和菜单。按 Escape 返回 Typora 编辑。它不是完整编辑器，也不承诺与 Typora 原生排版一致。目前没有真实文档上的性能对照结果。已发布的 v0.1.0 仍使用旧的手动阅读界面，以下说明对应当前源码。
 
 ## 工作方式
 
@@ -22,7 +22,8 @@
 - Canvas 背板只覆盖视口，像素比上限为 2，不生成全文长图。
 - 布局缓存上限 256 块，文字宽度缓存上限 8192 项。
 - 实测高度替换估计高度时，尽量保持当前块及块内滚动位置。
-- 插件读取当前编辑器内容，包含未保存的修改，不写入文件。阅读时隐藏宿主正文；退出时恢复。
+- 插件读取当前编辑器内容，包含未保存的修改，不写入文件。Canvas 挂载在原正文容器内；退出时恢复宿主样式、滚动和焦点。
+- 文档加载完成后自动渲染；空白新文档和源代码模式不自动接管。手动退出后，同一文档保持可编辑，切换文档再自动启用。
 
 它与手动 `display:none` 截断插件不同：可以连续滚动，接近的块自动排版和绘制。
 
@@ -57,16 +58,28 @@ npm run install:typora -- --resources "D:\Typora\resources"
 
 写入 `Program Files` 需要相应的文件权限。如提示拒绝访问，在有权限的终端执行安装命令。安装器不会关闭 Typora，也不会自动提升权限。
 
-保存文档、完全退出并重启 Typora，然后使用：
+保存文档、完全退出并重启 Typora，打开非空文档后会在原正文区域自动使用 Canvas 渲染，不显示额外的标题栏、提示条和统计栏。使用：
 
 | 操作 | 快捷键 |
 | --- | --- |
-| 进入 Canvas 阅读 | `Ctrl+Alt+Shift+F8` |
-| 返回 Typora 编辑 | `Escape` 或工具栏返回按钮 |
+| 手动切换 Canvas / 原生编辑 | `Ctrl+Alt+Shift+F8` |
+| 返回 Typora 编辑 | `Escape`（搜索栏打开时先关闭搜索栏） |
 | 搜索全文 | `Ctrl+F` |
 | 下一个 / 上一个匹配块 | 搜索框内 `Enter` / `Shift+Enter` |
 
-搜索按内容块匹配，工具栏计数也是块数。进入阅读模式从正文开头开始，退出保留进入前的 Typora 位置。文档切换、源代码模式切换或宿主报告内容变更时退出，避免继续显示旧快照。阅读模式期间不要同时开启其他内容截断插件。
+搜索按内容块匹配，搜索栏仅在按下 `Ctrl+F` 后显示，计数也是块数。进入 Canvas 时从正文开头开始，退出保留进入前的 Typora 位置。文档切换、源代码模式切换或宿主报告内容变更时退出，避免继续显示旧快照；下一文档加载完成后自动启用。宿主侧栏保留，但原生大纲、查找替换、导出等操作与 Canvas 的位置同步尚未适配，使用这些操作前请返回原生编辑。阅读模式期间不要同时开启其他内容截断插件。
+
+需要关闭自动接管时，在插件用户配置的 `[canvas_reader]` 中设置：
+
+```toml
+[canvas_reader]
+ENABLE = true
+NAME = "Typora Canvas"
+HOTKEY = "ctrl+alt+shift+f8"
+AUTO_OPEN = false
+```
+
+`AUTO_OPEN` 默认为 `true`。修改已有节即可，不要重复添加该节。自动接管仅改变渲染入口；Canvas 正文暂不能直接编辑，编辑仍由 Typora 原生处理。
 
 禁用插件：
 
@@ -103,7 +116,7 @@ npx playwright install chromium
 npm run test:browser
 ```
 
-浏览器测试默认使用 Playwright Chromium。也可通过 `PLAYWRIGHT_CHANNEL` 选择本机已安装的通道，例如 `msedge` 或 `chrome`，此时不需要下载 Chromium。测试覆盖高度索引、Unicode 分块、Markdown 解析、配置保留，以及约 9000 块文档的滚动、缓存上限、搜索、窗口变化和退出清理。结果保存在忽略提交的 `test-output/` 中。
+浏览器测试默认使用 Playwright Chromium。也可通过 `PLAYWRIGHT_CHANNEL` 选择本机已安装的通道，例如 `msedge` 或 `chrome`，此时不需要下载 Chromium。测试覆盖高度索引、Unicode 分块、Markdown 解析、配置保留、自动接管与编辑回退，以及约 9000 块文档的滚动、缓存上限、搜索、窗口变化、内嵌区域边界和退出清理。结果保存在忽略提交的 `test-output/` 中。
 
 也可通过 `PLAYWRIGHT_EXECUTABLE_PATH` 指定测试浏览器的可执行文件。
 

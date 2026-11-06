@@ -1,4 +1,6 @@
 import { mountReader } from './reader.js';
+// Also expose the mounting API for the standalone integration harness.
+window.mountCanvasReader = mountReader;
 
 let reader;
 const status = document.querySelector('#status');

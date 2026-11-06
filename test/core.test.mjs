@@ -56,6 +56,7 @@ test('layout handles oversized tokens and explicit code newlines', () => {
 test('installer preserves other plugins, comments, and is idempotent', () => {
   const raw = '# 我的配置\n[global]\nENABLE = true\n\n[callouts]\nENABLE = true\n';
   const installed = configure(raw, true);
+  assert.equal(parse(installed).canvas_reader.AUTO_OPEN, true);
   assert.equal(parse(installed).callouts.ENABLE, true);
   assert.ok(installed.includes('# 我的配置'));
   assert.deepEqual(parse(configure(installed, true)), parse(installed));
@@ -63,4 +64,6 @@ test('installer preserves other plugins, comments, and is idempotent', () => {
   const existing = '[canvas_reader]\nENABLE = false\nOTHER = 42\n\n[callouts]\nENABLE = true\n';
   assert.equal(parse(configure(existing, true)).canvas_reader.OTHER, 42);
   assert.equal(parse(configure(existing, true)).callouts.ENABLE, true);
+  assert.equal(parse(configure(existing + '\n[other]\nENABLE = true\n', true)).other.ENABLE, true);
+  assert.equal(parse(configure('[canvas_reader]\nAUTO_OPEN = false\n', true)).canvas_reader.AUTO_OPEN, false);
 });

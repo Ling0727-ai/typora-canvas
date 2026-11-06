@@ -3,13 +3,14 @@ import { HeightIndex } from './height-index.js';
 import { LruCache, estimateHeight, layoutBlock } from './layout.js';
 import css from './reader.css';
 
-export function mountReader({ markdown, title = 'Typora Canvas', onClose = () => {}, parent = document.body }) {
+export function mountReader({ markdown, title = 'Typora Canvas', onClose = () => {}, parent = document.body, embedded = false }) {
   const started = performance.now();
   const blocks = parseMarkdown(markdown);
   const parseMs = performance.now() - started;
   const host = document.createElement('div');
   host.dataset.typoraCanvas = '';
-  Object.assign(host.style, { position: 'fixed', inset: '0', zIndex: '2147483000' });
+  Object.assign(host.style, { position: embedded ? 'absolute' : 'fixed', inset: '0',
+    visibility: 'visible', zIndex: embedded ? '10' : '2147483000' });
   const root = host.attachShadow({ mode: 'open' });
   root.innerHTML = `<style>${css}</style><section class="reader" aria-label="Typora Canvas 阅读模式">
     <header><strong>Typora Canvas</strong><span class="title"></span>
@@ -20,6 +21,8 @@ export function mountReader({ markdown, title = 'Typora Canvas', onClose = () =>
     <main><div class="scroll" tabindex="0" role="region" aria-label="Canvas 阅读区，按 Escape 返回可访问的原始编辑器"><div class="spacer"></div></div>
     <canvas aria-hidden="true"></canvas></main><footer role="status"></footer></section>`;
   root.querySelector('.title').textContent = title;
+  const panel = root.querySelector('.reader');
+  if (embedded) panel.classList.add('embedded');
   parent.append(host);
   const main = root.querySelector('main');
   const scroll = root.querySelector('.scroll');
@@ -153,11 +156,20 @@ export function mountReader({ markdown, title = 'Typora Canvas', onClose = () =>
   }
   const close = () => { destroy(); onClose(); };
   const onKey = event => {
+    const path = event.composedPath();
+    if (embedded && !path.includes(host)) return;
     // Prevent host editor shortcuts from treating this preview as editable text.
-    if (event.key === 'Escape') { event.preventDefault(); event.stopImmediatePropagation(); close(); }
+    if (event.key === 'Escape') {
+      event.preventDefault(); event.stopImmediatePropagation();
+      if (embedded && panel.classList.contains('search-open')) {
+        panel.classList.remove('search-open'); scroll.focus();
+      } else close();
+    }
     else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'f') {
-      event.preventDefault(); event.stopImmediatePropagation(); search.focus(); search.select();
-    } else if (event.key === 'Enter' && event.target === search) {
+      event.preventDefault(); event.stopImmediatePropagation();
+      if (embedded) panel.classList.add('search-open');
+      search.focus(); search.select();
+    } else if (event.key === 'Enter' && path[0] === search) {
       event.preventDefault(); event.stopImmediatePropagation();
       if (searchTimer) { clearTimeout(searchTimer); searchTimer = 0; find(); }
       else moveHit(event.shiftKey ? -1 : 1);

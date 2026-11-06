@@ -13,7 +13,8 @@ export function configure(raw, enable) {
   if (before.canvas_reader && typeof before.canvas_reader !== 'object') throw new Error('canvas_reader must be a TOML table');
   const pattern = /^\[canvas_reader\][^\r\n]*\r?\n[\s\S]*?(?=^\[|$(?![\s\S]))/m;
   let section = raw.match(pattern)?.[0] || '[canvas_reader]\n';
-  const values = { ENABLE: String(enable), NAME: '"Typora Canvas"', HOTKEY: '"ctrl+alt+shift+f8"' };
+  const values = { ENABLE: String(enable), NAME: '"Typora Canvas"', HOTKEY: '"ctrl+alt+shift+f8"',
+    AUTO_OPEN: before.canvas_reader?.AUTO_OPEN === false ? 'false' : 'true' };
   for (const [key, value] of Object.entries(values)) {
     if (!enable && key !== 'ENABLE') continue;
     const assignment = new RegExp(`^${key}\\s*=.*$`, 'm');
@@ -81,7 +82,7 @@ async function main() {
     else if (enabled) await rm(targetAssets, { recursive: true, force: true });
     throw error;
   }
-  console.log(enabled ? '安装完成。保存笔记并重启 Typora，按 Ctrl+Alt+Shift+F8 进入 Canvas 阅读。' : '已禁用。重启 Typora 后生效，插件文件保留，便于恢复。');
+  console.log(enabled ? '安装完成。保存笔记并重启 Typora，文档默认在原正文区域自动使用 Canvas 渲染；Esc 返回编辑，Ctrl+Alt+Shift+F8 手动切换。' : '已禁用。重启 Typora 后生效，插件文件保留，便于恢复。');
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   main().catch(error => { console.error(error.message); process.exitCode = 1; });

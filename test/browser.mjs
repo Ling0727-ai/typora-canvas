@@ -55,6 +55,34 @@ try {
   await page.waitForFunction(() => window.demoReader?.getStats().drawnBlocks > 0);
   await page.getByRole('button', { name: '返回编辑 · Esc' }).click();
   assert.equal(await page.locator('[data-typora-canvas]').count(), 0);
+  // Embedded mode stays inside the original editor pane without extra chrome.
+  await page.evaluate(() => {
+    const pane = document.createElement('div');
+    pane.id = 'editor-pane';
+    Object.assign(pane.style, { position: 'fixed', left: '240px', top: '40px', right: '0', bottom: '24px', visibility: 'hidden' });
+    document.body.append(pane);
+    window.embeddedReader = window.mountCanvasReader({ parent: pane, embedded: true,
+      markdown: '# Embedded\n\nOriginal pane content.\n\n## Second\n\nSecond match.' });
+  });
+  await page.waitForFunction(() => window.embeddedReader.getStats().drawnBlocks > 0);
+  const host = page.locator('#editor-pane > [data-typora-canvas]');
+  const bounds = await host.boundingBox();
+  assert.deepEqual(bounds, { x: 240, y: 40, width: 460, height: 536 });
+  assert.equal(await host.locator('header').isVisible(), false);
+  assert.equal(await host.locator('.notice').isVisible(), false);
+  assert.equal(await host.locator('footer').isVisible(), false);
+  await page.keyboard.press('Control+f');
+  await host.getByRole('searchbox').fill('Second');
+  await page.waitForTimeout(200);
+  await host.getByText('1/2 块', { exact: true }).waitFor();
+  await page.keyboard.press('Enter');
+  await host.getByText('2/2 块', { exact: true }).waitFor();
+  await page.keyboard.press('Escape');
+  assert.equal(await host.locator('header').isVisible(), false);
+  assert.equal(await host.count(), 1);
+  await page.screenshot({ path: 'test-output/embedded.png' });
+  await page.keyboard.press('Escape');
+  assert.equal(await host.count(), 0);
   assert.deepEqual(errors, []);
   console.log(JSON.stringify({ passed: true, initial, searched, resized }, null, 2));
 } finally {
