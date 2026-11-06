@@ -96,6 +96,12 @@ async function main() {
   }
   console.log(enabled ? `安装完成。模式：${parse(modified).canvas_reader.RENDER_MODE}。保存笔记并重启 Typora。Ctrl+Alt+Shift+F8 切换开关。` : '已禁用。重启 Typora 后生效，插件文件保留，便于恢复。');
 }
-if (process.argv[1] && await realpath(process.argv[1]).catch(() => '') === fileURLToPath(import.meta.url)) {
+// Canonicalize both sides: Windows temporary/home paths can use 8.3 aliases,
+// while npm exposes symlinked command paths on Unix.
+const canonical = async path => {
+  const value = await realpath(path).catch(() => '');
+  return process.platform === 'win32' ? value.toLowerCase() : value;
+};
+if (process.argv[1] && await canonical(process.argv[1]) === await canonical(fileURLToPath(import.meta.url))) {
   main().catch(error => { console.error(error.message); process.exitCode = 1; });
 }
