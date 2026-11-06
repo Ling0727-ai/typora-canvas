@@ -14,6 +14,7 @@ import { testSpacingAndQuoteEditing } from './spacing-browser.mjs';
 import { testQuoteEnter } from './quote-enter-browser.mjs';
 import { testTableArrows } from './table-arrows-browser.mjs';
 import { usePlatformShortcuts } from './keyboard.mjs';
+import { testLists } from './lists-browser.mjs';
 
 const server = spawn(process.execPath, ['scripts/serve.mjs'], { stdio: 'pipe', env: { ...process.env, PORT: '4174' } });
 let browser, page;
@@ -260,6 +261,7 @@ try {
   await testSpacingAndQuoteEditing(page);
   await testQuoteEnter(page);
   await testTableArrows(page);
+  await testLists(page);
   assert.deepEqual(errors, []);
   console.log(JSON.stringify({ passed: true, initial, searched, resized, hybridStats, pureStats, bigAfter }, null, 2));
 } catch (error) {

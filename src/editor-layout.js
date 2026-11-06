@@ -4,6 +4,7 @@ import { defaultCalloutTheme, calloutSpec } from './callouts.js';
 import { displayMathGeometry } from './math-geometry.js';
 import { inlineSourceRuns } from './inline-source.js';
 import { blankGeometry } from './spacing.js';
+import { listMarker } from './lists.js';
 export const editorFont = '"Segoe UI", "Microsoft YaHei", sans-serif';
 
 // Inactive lines elide common Markdown markers; the active source line is exact.
@@ -76,6 +77,39 @@ export function layoutSourceLine(ctx, text, row, { width, raw, font = editorFont
     value.mediaX = offsetX + (value.mediaX || 0); value.inset = offsetX;
     value.calloutTitle = header && !editingHeader ? { spec, x: indent, y: topGap + 5 } : null;
     value.calloutTopGap = topGap; value.calloutBottomGap = bottomGap;
+    return value;
+  }
+  if (row.list && !raw) {
+    const list = row.list, paths = list.path.split('/');
+    const styles = paths.map((tag, i) => typography.lists?.[paths.slice(0, i + 1).join('/')]
+      || typography.lists?.[paths.slice(Math.max(0, i - 2), i + 1).join('/')] || {
+      paddingLeft: size * 2, marginLeft: 0, marginTop: 0, marginBottom: 0,
+      item: typography.paragraph || {}, marker: {}, listStyleType: tag === 'ol' ? 'decimal' : ['disc', 'circle', 'square'][i % 3] });
+    const spec = styles.at(-1), item = spec.item || typography.paragraph || {};
+    const style = list.loose ? spec.paragraph || item : item;
+    const label = list.first ? listMarker(list, spec.listStyleType) : '';
+    const markerStyle = { ...item, ...spec.marker }, markerSize = markerStyle.fontSize || size;
+    const markerFont = `${markerStyle.fontStyle || 'normal'} ${markerStyle.fontWeight || '400'} ${markerSize}px ${markerStyle.fontFamily || font}`;
+    const markerWidth = measure(markerFont, label), gap = markerSize * .45;
+    const indent = Math.max(markerWidth + gap, styles.reduce((sum, s) => sum + (s.paddingLeft ?? size * 2) + (s.marginLeft || 0) + (s.item?.paddingLeft || 0), 0));
+    const top = list.groups.reduce((sum, g, i) => sum + (g.start === row.sourceLine ? styles[i].marginTop || 0 : 0), 0)
+      + (list.first ? (item.paddingTop || 0) + (item.marginTop || 0) : 0)
+      + (list.loose && list.paragraphStart ? style.marginTop || 0 : 0);
+    const bottom = list.groups.reduce((sum, g, i) => sum + (g.end === row.sourceLine ? styles[i].marginBottom || 0 : 0), 0)
+      + (row.sourceLine === list.end ? (item.paddingBottom || 0) + (item.marginBottom || 0) : 0)
+      + (list.loose && list.paragraphEnd ? style.marginBottom || 0 : 0);
+    const value = layoutSourceLine(ctx, text.slice(list.contentFrom), { ...row, list: null, type: 'paragraph',
+      paragraphStart: false, paragraphEnd: false }, { width: Math.max(24, width - indent), raw: false,
+      font, size, asset, measure, typography: { ...typography, paragraph: { ...style, marginTop: 0, marginBottom: 0, paddingTop: 0, paddingBottom: 0 } },
+      codeStyle, imageLayout });
+    for (const line of value.lines) {
+      line.top += top;
+      for (const piece of line.pieces) { piece.x += indent; piece.from += list.contentFrom; piece.to += list.contentFrom; }
+    }
+    if (label && value.lines.length) value.lines[0].pieces.unshift({ text: label, from: list.markerFrom, to: list.contentFrom,
+      x: indent - gap - markerWidth, width: markerWidth, font: markerFont, color: markerStyle.color, listMarker: true });
+    value.height += top + bottom; value.top += top;
+    value.listIndent = indent;
     return value;
   }
   const style = row.type === 'heading' ? typography.headings?.[row.level - 1] : row.type.startsWith('code') ? codeStyle

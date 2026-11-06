@@ -473,16 +473,17 @@ export function mountCanvasEditor({ markdown = '', parent = document.body, embed
     sourceActivated = true;
     errorMessage = '';
     if (!change || change.addedLines || change.first !== change.last || rows[change.first]?.calloutHeader ||
+        rows[change.first]?.list && (change.from === undefined || change.from <= model.doc.line(change.first + 1).from + (rows[change.first].sourceOffset || 0) + rows[change.first].list.contentFrom) ||
         ['math', 'math-tail', 'code-fence'].includes(rows[change.first]?.type) || /[\n$`~|>\[\]]/.test(change.inserted + change.deleted) ||
         /^\s*[| :\-]+$/.test(model.doc.line(change.first + 1).text)) rebuild();
     else {
       const i = change.first, old = rows[i];
       const next = classifyLines({ lines: 1, line: () => ({ text: model.doc.line(i + 1).text.slice(old.sourceOffset || 0) }) }, { parseImage: images?.parse })[0];
-      if (!['code', 'table'].includes(old.type) && (next.type !== old.type || next.level !== old.level)) rebuild();
+      if (!['code', 'table'].includes(old.type) && (next.type !== old.type || next.level !== old.level || next.list && !old.list)) rebuild();
       else {
         rows[i] = ['code', 'table'].includes(old.type) ? { ...old, revision: old.revision + 1 } : {
           ...next, sourceLine: old.sourceLine, sourceOffset: old.sourceOffset, callouts: old.callouts, revision: old.revision + 1,
-          paragraphStart: old.paragraphStart, paragraphEnd: old.paragraphEnd, previousBlock: old.previousBlock, emptyParagraph: old.emptyParagraph };
+          paragraphStart: old.paragraphStart, paragraphEnd: old.paragraphEnd, previousBlock: old.previousBlock, emptyParagraph: old.emptyParagraph, list: old.list };
         heights.update(i, estimate(i, true));
       }
     }

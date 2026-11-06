@@ -2,6 +2,7 @@ import { Text } from '@codemirror/state';
 import { calloutContexts } from './callouts.js';
 import { classifyBlocks } from './blocks.js';
 import { markBlankSpacing } from './spacing.js';
+import { markLists } from './lists.js';
 
 // Immutable rope snapshots preserve Markdown verbatim, including unknown syntax
 // and existing CRLF. No rich-text-to-Markdown serialization is involved.
@@ -41,7 +42,7 @@ export class CanvasDocument {
     if (selection) this.select(selection.anchor, selection.head); else this.select(from + text.length);
     if (before !== this.doc && !this.group) this.record(before, previous);
     this.revision++;
-    return { first, last, addedLines: text.split('\n').length - 1, deleted, inserted: text };
+    return { first, last, from, to, addedLines: text.split('\n').length - 1, deleted, inserted: text };
   }
   replaceSelection(text) { return this.replace(this.from, this.to, text); }
   undo() {
@@ -88,6 +89,7 @@ export function classifyLines(doc, { customCallouts = true, parseImage } = {}) {
     i = end - 1;
   }
   rows.calloutGroups = groups;
+  markLists(doc, rows);
   markBlankSpacing(rows);
   let previous = null;
   for (let i = 0; i < rows.length; i++) {
