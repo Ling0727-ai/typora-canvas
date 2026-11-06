@@ -58,6 +58,7 @@ class CanvasReaderPlugin extends BasePlugin {
       this.rendererWrite.style.display = this.previousWriteDisplay;
       this.previousWriteDisplay = undefined;
     }
+    this.navigationBridge?.detach(); this.navigationBridge = null;
     this.canvasBridge?.detach(); this.canvasBridge = null;
     reader.destroy();
     if (this.previousStyle) {
@@ -106,7 +107,9 @@ class CanvasReaderPlugin extends BasePlugin {
           calloutConfig: this.utils.getPlugin?.('callouts')?.config || { ENABLE: false } });
         this.reader = runtime.mountCanvasEditor({ markdown, parent: this.content, embedded: true, onClose: this.close,
           initialDirty: typeof File.isDocumentEdited === 'function' ? File.isDocumentEdited() : !!File.needSaveState,
-          onChange: () => this.canvasBridge?.changed(), onSave: () => this.canvasBridge.save(),
+          onChange: () => { this.canvasBridge?.changed(); this.navigationBridge?.refresh(); }, onSave: () => this.canvasBridge.save(),
+          onViewportChange: () => this.navigationBridge?.highlight(),
+          onOpenLink: href => this.navigationBridge?.open(href),
           resolveImage: source => {
             if (/^(?:https?:|data:|blob:|file:)/i.test(source)) return source;
             return require('url').pathToFileURL(this.utils.resolveLocalPath(decodeURI(source))).href;
@@ -123,6 +126,8 @@ class CanvasReaderPlugin extends BasePlugin {
             fs.renameSync(target + '.tmp', target);
           } catch (error) { console.error('[Typora Canvas] recovery failed', error); }
         } });
+        this.navigationBridge = runtime.attachCanvasNavigation({ editor: this.reader, outline: File.editor.library?.outline,
+          openLink: href => this.utils.openUrl(href) });
         this.previousWriteDisplay = this.rendererWrite.style.display;
         this.rendererWrite.style.display = 'none';
         console.info('[Typora Canvas] pure Canvas editor active; original Markdown preserved');

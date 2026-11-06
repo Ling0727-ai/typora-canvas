@@ -1,6 +1,7 @@
 import { CanvasDocument, classifyLines, inputDiff } from './editor-model.js';
 import { layoutSourceLine, hitSource, caretSource, editorFont } from './editor-layout.js';
 import { FormulaEngine } from './formula-client.js';
+import { headingIndex, anchorHeading, sourceLinks, safeLink } from './navigation.js';
 import { defaultCalloutTheme, calloutSpec } from './callouts.js';
 import { watchCanvasTheme } from './theme.js';
 import { HeightIndex } from './height-index.js';
@@ -14,7 +15,8 @@ import { mountCodeUI } from './code-ui.js';
 const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
 export function mountCanvasEditor({ markdown = '', parent = document.body, embedded = false, onChange = () => {},
   onSave = async () => {}, onClose = () => {}, resolveImage = value => value,
-  theme = {}, initialDirty = false, getTheme = null, themeNodes = [], nativeCallouts = null }) {
+  theme = {}, initialDirty = false, getTheme = null, themeNodes = [], nativeCallouts = null,
+  onOpenLink = href => window.open(href, '_blank', 'noopener'), onViewportChange = () => {} }) {
   const model = new CanvasDocument(markdown, { dirty: initialDirty });
   const host = document.createElement('div'); host.dataset.typoraCanvasEditor = '';
   Object.assign(host.style, { position: embedded ? 'absolute' : 'fixed', inset: '0', zIndex: '10', visibility: 'visible' });
@@ -25,9 +27,12 @@ export function mountCanvasEditor({ markdown = '', parent = document.body, embed
   .find{display:none;align-items:center;gap:6px;padding:6px 12px;border-bottom:1px solid #9aa8bb55}.find.open{display:flex}
   input,button{font:inherit;color:inherit;background:var(--tc-bg,#fff);border:1px solid #9aa8bb88;border-radius:4px;padding:5px 8px}
   input{flex:1;min-width:30px}button{cursor:pointer}button[aria-pressed=true]{background:#4c80d144}
-  main{position:relative;flex:1;min-height:0;overflow:hidden}.scroll{position:absolute;inset:0;overflow:auto;overscroll-behavior:contain;overflow-anchor:none;cursor:text;touch-action:none}
+  main{position:relative;flex:1;min-height:0;overflow:hidden}.scroll{position:absolute;inset:0;z-index:2;overflow-x:hidden;overflow-y:scroll;scrollbar-gutter:stable;overscroll-behavior:contain;overflow-anchor:none;cursor:text;touch-action:none}
+  .scroll::-webkit-scrollbar{width:12px;background:var(--tc-bg,#fafbfd)}
+  .scroll::-webkit-scrollbar-thumb{background:#8997b399;border:3px solid var(--tc-bg,#fafbfd);border-radius:8px}
+  .scroll::-webkit-scrollbar-thumb:hover{background:#8997b3}
   .spacer{width:1px;pointer-events:none}canvas{position:absolute;inset:0;pointer-events:none}
-  textarea{position:absolute;opacity:.01;width:2px;height:28px;padding:0;border:0;resize:none;overflow:hidden;white-space:pre;caret-color:transparent;color:transparent;background:transparent;font:17px sans-serif;outline:none}
+  textarea{position:absolute;z-index:3;opacity:.01;width:2px;height:28px;padding:0;border:0;resize:none;overflow:hidden;white-space:pre;caret-color:transparent;color:transparent;background:transparent;font:17px sans-serif;outline:none}
   footer{display:flex;align-items:center;gap:8px;padding:4px 12px;border-top:1px solid #9aa8bb44;font-size:11px;min-height:27px}
   .status{flex:1}.find-status{font-size:11px;max-width:40%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   </style><section class="editor"><div class="find"><input type="search" aria-label="Canvas 正文搜索" placeholder="搜索 Markdown 原文">
@@ -54,6 +59,11 @@ export function mountCanvasEditor({ markdown = '', parent = document.body, embed
   let lastPaintMs = 0, drawn = 0, assetBytes = 0, errorMessage = '', previousRaw = new Set();
   let structureRebuilds = 0;
   let previewFormulas = 0, drawnTables = 0;
+  let headingDoc = null, headings = [], notifiedLine = -1;
+  const getOutline = () => {
+    if (headingDoc !== model.doc) { headingDoc = model.doc; headings = headingIndex(model.doc, rows); }
+    return headings;
+  };
   let fontSize = Math.max(6, parseFloat(theme.fontSize) || 17);
   let font = theme.fontFamily || editorFont;
   let drawColor = theme.color || '#243044', background = theme.background || '#fafbfd';
@@ -454,7 +464,7 @@ export function mountCanvasEditor({ markdown = '', parent = document.body, embed
     model.select(anchor, head); refreshTableSelection(); syncInput(); if (reveal) revealCaret(); schedule();
   }
   function resize() {
-    const nextWidth = Math.max(1, main.clientWidth), nextHeight = Math.max(1, main.clientHeight);
+    const nextWidth = Math.max(1, scroll.clientWidth), nextHeight = Math.max(1, main.clientHeight);
     const nextDpr = Math.min(window.devicePixelRatio || 1, 2);
     if (nextWidth === width && nextHeight === height && nextDpr === dpr) return;
     const oldLine = heights?.find(scroll.scrollTop) || 0;
@@ -612,6 +622,8 @@ export function mountCanvasEditor({ markdown = '', parent = document.body, embed
     const line = model.doc.lineAt(model.head);
     status.textContent = errorMessage || `Canvas 编辑${model.dirty ? ' · 未保存' : ''} · ${line.number}:${model.head - line.from + 1} · 绘制 ${drawn}/${rows.length} 行 · ${lastPaintMs.toFixed(1)}ms`;
     if (deferred) schedule();
+    const visibleLine = heights.find(scroll.scrollTop);
+    if (visibleLine !== notifiedLine) { notifiedLine = visibleLine; onViewportChange(visibleLine); }
   }
   function hit(x, y) {
     const i = heights.find(Math.max(0, y));
@@ -623,8 +635,12 @@ export function mountCanvasEditor({ markdown = '', parent = document.body, embed
     return line.from + hitSource(value, x - left, y - heights.prefix(i), line.text.length);
   }
   const pointer = event => {
-    if (event.button !== 0 || event.offsetX >= scroll.clientWidth) return;
+    if (event.button !== 0 || event.clientX - scroll.getBoundingClientRect().left >= scroll.clientWidth) return;
     const r = main.getBoundingClientRect();
+    const href = linkAt(event.clientX - r.left, event.clientY - r.top + scroll.scrollTop);
+    if (href && (event.ctrlKey || event.metaKey)) {
+      event.preventDefault(); event.stopPropagation(); activateLink(href); return;
+    }
     const position = hit(event.clientX - r.left, event.clientY - r.top + scroll.scrollTop);
     event.preventDefault(); focused = true; dragging = true;
     setSelection(event.shiftKey ? model.anchor : position, position, false);
@@ -632,6 +648,11 @@ export function mountCanvasEditor({ markdown = '', parent = document.body, embed
   };
   const pointerMove = event => {
     const r = main.getBoundingClientRect(), y = event.clientY - r.top;
+    if (!dragging) {
+      const href = linkAt(event.clientX - r.left, y + scroll.scrollTop);
+      scroll.style.cursor = (event.ctrlKey || event.metaKey) && href ? 'pointer' : 'text';
+      scroll.title = href ? `Ctrl+单击打开链接：${href}` : '';
+    }
     if (!dragging && calloutTheme.hoverPreview) {
       const i = heights.find(y + scroll.scrollTop), row = rows[i];
       const x = event.clientX - r.left;
@@ -643,6 +664,33 @@ export function mountCanvasEditor({ markdown = '', parent = document.body, embed
     setSelection(model.anchor, hit(event.clientX - r.left, y + scroll.scrollTop), false);
   };
   const pointerUp = () => { dragging = false; };
+  function linkAt(x, y) {
+    const i = heights.find(Math.max(0, y)), value = layout(i);
+    if (['code', 'code-fence', 'math', 'math-tail'].includes(rows[i].type)) return null;
+    if (value.nativeCallout) {
+      const target = value.nativeCallout.links?.find(link => x - left >= link.x && x - left <= link.x + link.width &&
+        y - heights.prefix(i) + value.sliceTop - value.documentTop >= link.y &&
+        y - heights.prefix(i) + value.sliceTop - value.documentTop <= link.y + link.height);
+      if (target) return target.href;
+    }
+    const visual = value.lines.find(line => y - heights.prefix(i) >= line.top && y - heights.prefix(i) < line.top + line.height);
+    const piece = visual?.pieces.find(p => x - left >= p.x && x - left <= p.x + p.width);
+    if (!piece) return null;
+    const text = model.doc.line(i + 1).text;
+    return sourceLinks(text).find(link => piece.from >= link.from && piece.from < link.to)?.href || null;
+  }
+  function activateLink(href) {
+    if (!safeLink(href)) { errorMessage = '不支持此链接地址'; schedule(); return; }
+    if (href.startsWith('#')) {
+      const target = anchorHeading(getOutline(), href);
+      if (!target) { errorMessage = `未找到标题：${href}`; schedule(); return; }
+      scrollToLine(target.line); return;
+    }
+    Promise.resolve().then(() => onOpenLink(href)).catch(error => { errorMessage = `打开链接失败：${error.message}`; schedule(); });
+  }
+  function scrollToLine(i) {
+    scroll.scrollTop = heights.prefix(Math.max(0, Math.min(rows.length - 1, i))); schedule();
+  }
   const onInput = () => {
     if (syncingInput || !scope) return;
     const diff = inputDiff(scope.text, input.value);
@@ -771,11 +819,12 @@ export function mountCanvasEditor({ markdown = '', parent = document.body, embed
   const stopThemeWatch = getTheme ? watchCanvasTheme(getTheme, updateTheme, { nodes: themeNodes }) : () => {};
   return { host, model, getText: () => model.getText(), save,
     setStatus: message => { errorMessage = message; schedule(); }, updateTheme,
-    scrollToLine: i => { scroll.scrollTop = heights.prefix(Math.max(0, Math.min(rows.length - 1, i))); schedule(); },
+    scrollToLine, getOutline, getFirstVisibleLine: () => heights.find(scroll.scrollTop),
     getLineRect: i => ({ x: left, y: heights.prefix(i) - scroll.scrollTop, width: contentWidth, height: heights.values[i] }),
     getStats: () => ({ mode: 'canvas-editor', lines: rows.length, drawnLines: drawn, cachedLayouts: layouts.size,
       domNodes: root.querySelectorAll('*').length, canvasWidth: canvas.width, canvasHeight: canvas.height,
       paintMs: lastPaintMs, dirty: model.dirty, assets: assets.size, readyAssets: [...assets.values()].filter(a => a.image).length,
+      scrollTop: scroll.scrollTop, scrollHeight: scroll.scrollHeight, viewportHeight: scroll.clientHeight, firstVisibleLine: heights.find(scroll.scrollTop),
       assetBytes, previewFormulas, drawnTables, calloutGroups: rows.calloutGroups.length,
       formulas: formulaEngine.getStats(),
       hiddenCalloutLines: rows.filter(hiddenCallout).length,

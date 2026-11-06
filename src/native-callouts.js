@@ -142,6 +142,8 @@ export function createNativeCalloutRenderer({ write, plugin }) {
       }));
       if (disposed || epoch !== generation || !valid()) throw new Error('Callout capture cancelled');
       const bounds = stage.getBoundingClientRect(), height = Math.ceil(bounds.height);
+      const links = [...stage.querySelectorAll('a[href]')].flatMap(a => [...a.getClientRects()].map(r => ({
+        href: a.getAttribute('href'), x: r.left - bounds.left, y: r.top - bounds.top, width: r.width, height: r.height })));
       const ratio = Math.min(2, pixelRatio);
       if (!height || height > 12000 || width * height * ratio * ratio * 4 > 24 * 1024 * 1024) throw new Error('Callout exceeds pixel budget');
       const positions = new Map([[0, 0]]);
@@ -158,7 +160,7 @@ export function createNativeCalloutRenderer({ write, plugin }) {
       const canvas = await toCanvas(stage, { width, height, pixelRatio: ratio, skipFonts: true, cacheBust: false,
         style: { position: 'static', left: '0', top: '0', zIndex: 'auto', contain: 'none' } });
       if (disposed || epoch !== generation || !valid()) { canvas.width = canvas.height = 0; throw new Error('Callout capture cancelled'); }
-      return { image: canvas, width, height, starts, ratio, formulaErrors };
+      return { image: canvas, width, height, starts, ratio, formulaErrors, links };
     } finally { stage?.remove(); stage = null; }
   }
   return {

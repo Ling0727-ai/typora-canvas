@@ -2,6 +2,7 @@ const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
 import { tableCells } from './editor-model.js';
 import { defaultCalloutTheme, calloutSpec } from './callouts.js';
 import { displayMathGeometry } from './math-geometry.js';
+import { sourceLinks } from './navigation.js';
 export const editorFont = '"Segoe UI", "Microsoft YaHei", sans-serif';
 
 // Inactive lines elide common Markdown markers; the active source line is exact.
@@ -39,6 +40,7 @@ export function sourceRuns(text, row, raw, cursor = -1, selection = null) {
   const prefix = /^(#{1,6}\s+|\s*>\s?)/.exec(text);
   if (prefix) start = prefix[0].length;
   const runs = [];
+  const links = sourceLinks(text);
   const pattern = /\*\*([^*]+)\*\*|__([^_]+)__|`([^`]+)`|\*([^*]+)\*|\[([^\]]+)\]\(([^)]+)\)|\$([^$\n]+)\$|(<[bB][rR]\s*\/?>)/g;
   let consumed = start, match;
   pattern.lastIndex = start;
@@ -48,11 +50,13 @@ export function sourceRuns(text, row, raw, cursor = -1, selection = null) {
       runs.push({ text: '', break: true, from: match.index, to: pattern.lastIndex });
       consumed = pattern.lastIndex; continue;
     }
+    const link = match[6] ? links.find(l => l.from === match.index) : null;
+    if (link) pattern.lastIndex = link.to;
     const value = match[1] || match[2] || match[3] || match[4] || match[5] || match[7];
     const offset = match[0].indexOf(value);
     runs.push({ text: value, from: match[7] ? match.index : match.index + offset,
       to: match[7] ? pattern.lastIndex : match.index + offset + value.length,
-      bold: !!(match[1] || match[2]), code: !!match[3], italic: !!match[4], link: match[6], tex: match[7] });
+      bold: !!(match[1] || match[2]), code: !!match[3], italic: !!match[4], link: link?.href || match[6], tex: match[7] });
     consumed = pattern.lastIndex;
   }
   if (consumed < text.length) runs.push({ text: text.slice(consumed), from: consumed, to: text.length });

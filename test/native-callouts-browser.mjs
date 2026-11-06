@@ -95,6 +95,28 @@ export async function testNativeCallouts(page) {
   assert.deepEqual(formulaFailure.errors, ['test formula failure']);
   assert.deepEqual(formulaFailure.messages, ['x^2', 'bad', 'y^2']);
   assert.ok(formulaFailure.height > 20 && formulaFailure.height < 250);
+  const calloutLink = await page.evaluate(async () => {
+    window.calloutOpenedLinks = [];
+    const nativeCallouts = window.module.exports.createNativeCalloutRenderer({ write: document.querySelector('#write'), plugin: window.calloutTestPlugin });
+    window.pure = window.module.exports.mountCanvasEditor({ markdown: '# Links\n\n> [!note] 链接\n> [文档](notes/other.md)\n\n结束。',
+      nativeCallouts, onOpenLink: href => window.calloutOpenedLinks.push(href) });
+    const probe = await window.module.exports.createNativeCalloutRenderer({ write: document.querySelector('#write'), plugin: window.calloutTestPlugin });
+    try {
+      const result = await probe.render({ markdown: '> [!note] 链接\n> [文档](notes/other.md)', width: 900 });
+      const link = result.links[0]; result.image.width = result.image.height = 0; return link;
+    } finally { probe.destroy(); }
+  });
+  assert.equal(calloutLink.href, 'notes/other.md');
+  await page.waitForFunction(() => window.pure.getStats().nativeCallouts.ready === 1);
+  const calloutRect = await page.evaluate(() => window.pure.getLineRect(2));
+  const calloutMain = await page.locator('[data-typora-canvas-editor] main').boundingBox();
+  await page.keyboard.down('Control');
+  await page.mouse.click(calloutMain.x + calloutRect.x + calloutLink.x + calloutLink.width / 2,
+    calloutMain.y + calloutRect.y + calloutLink.y + calloutLink.height / 2);
+  await page.keyboard.up('Control');
+  await page.waitForFunction(() => window.calloutOpenedLinks.length === 1);
+  assert.deepEqual(await page.evaluate(() => window.calloutOpenedLinks), ['notes/other.md']);
+  await page.evaluate(() => window.pure.destroy());
   // More visible blocks than the cache budget must settle without eviction loops.
   await page.evaluate(() => {
     window.nativeCaptures = 0;

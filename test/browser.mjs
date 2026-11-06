@@ -8,6 +8,7 @@ import { testNativeCallouts } from './native-callouts-browser.mjs';
 import { testBlocksAndTheme } from './blocks-browser.mjs';
 import { testFormulaIsolation } from './formulas-browser.mjs';
 import { testDisplayMathSpacing } from './math-spacing-browser.mjs';
+import { testNavigation } from './navigation-browser.mjs';
 
 const server = spawn(process.execPath, ['scripts/serve.mjs'], { stdio: 'pipe', env: { ...process.env, PORT: '4174' } });
 let browser;
@@ -19,7 +20,7 @@ try {
     server.on('exit', code => { clearTimeout(timeout); reject(new Error(`Preview server exited ${code}`)); });
   });
   browser = await chromium.launch({ channel: process.env.PLAYWRIGHT_CHANNEL || undefined,
-    executablePath: process.env.PLAYWRIGHT_EXECUTABLE_PATH || undefined, headless: true });
+    executablePath: process.env.PLAYWRIGHT_EXECUTABLE_PATH || undefined, headless: true, ignoreDefaultArgs: ['--hide-scrollbars'] });
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1 });
   const errors = [];
   page.on('pageerror', error => errors.push(String(error)));
@@ -49,7 +50,7 @@ try {
   await page.setViewportSize({ width: 700, height: 600 });
   await page.waitForTimeout(200);
   const resized = await page.evaluate(() => window.demoReader.getStats());
-  assert.equal(resized.canvasWidth, 700);
+  assert.ok(resized.canvasWidth >= 680 && resized.canvasWidth <= 700);
   assert.ok(resized.drawnBlocks > 0);
   await mkdir('test-output', { recursive: true });
   await page.screenshot({ path: 'test-output/preview.png' });
@@ -73,7 +74,8 @@ try {
   await page.waitForFunction(() => window.embeddedReader.getStats().drawnBlocks > 0);
   const host = page.locator('#editor-pane > [data-typora-canvas]');
   const bounds = await host.boundingBox();
-  assert.deepEqual(bounds, { x: 240, y: 40, width: 460, height: 536 });
+  assert.deepEqual({ x: bounds.x, y: bounds.y, height: bounds.height }, { x: 240, y: 40, height: 536 });
+  assert.ok(bounds.width >= 440 && bounds.width <= 460);
   assert.equal(await host.locator('header').isVisible(), false);
   assert.equal(await host.locator('.notice').isVisible(), false);
   assert.equal(await host.locator('footer').isVisible(), false);
@@ -245,6 +247,7 @@ try {
   await testFormulaIsolation(page);
   await testNativeCallouts(page);
   await testDisplayMathSpacing(page);
+  await testNavigation(page);
   assert.deepEqual(errors, []);
   console.log(JSON.stringify({ passed: true, initial, searched, resized, hybridStats, pureStats, bigAfter }, null, 2));
 } finally {

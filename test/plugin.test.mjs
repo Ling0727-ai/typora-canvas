@@ -22,14 +22,22 @@ function harness(config = { RENDER_MODE: 'canvas' }) {
         state.received = options; state.opened++;
         return { destroy: () => state.destroyed++, invalidate: () => state.invalidated++ };
       };
-      return { mountReader: mount, mountHybrid: mount };
+      return { mountReader: mount, mountHybrid: mount, mountCanvasEditor: mount,
+        createNativeCalloutRenderer: () => null, readCanvasTheme: () => ({}),
+        attachCanvasHost: () => ({ changed: () => state.changed = true, detach: () => state.saveDetached = true }),
+        attachCanvasNavigation: options => {
+          state.navigationOptions = options;
+          return { refresh: () => state.navigationRefreshed = true, highlight: () => state.navigationHighlighted = true,
+            open: href => options.openLink(href), detach: () => state.navigationDetached = true };
+        } };
     } };
   vm.runInNewContext(code, sandbox);
   const plugin = new sandbox.module.exports.plugin();
   plugin.config = config;
   const names = ['beforeFileOpen', 'beforeToggleSourceMode', 'fileEdited', 'fileContentLoaded', 'allPluginsHadInjected'];
   plugin.utils = { getCurrentFileContent: () => state.markdown, getFilePath: () => state.path,
-    entities: { eContent: content, eWrite: {} }, eventHub: {
+    openUrl: href => state.openedUrl = href,
+    entities: { eContent: content, eWrite: { style: { display: '' } } }, eventHub: {
       eventType: Object.fromEntries(names.map(n => [n, n])),
       on: (name, callback) => callbacks.set(name, callback)
     }, showMessageBox: options => state.errors.push(options) };
@@ -51,6 +59,20 @@ test('manual toggle mounts in the original pane and restores host styles, focus 
   assert.equal(h.content.scrollTop, 345);
   assert.equal(h.state.destroyed, 1); assert.equal(h.state.focused, 1);
   h.plugin.close(); assert.equal(h.state.destroyed, 1);
+});
+
+test('Canvas adapter attaches heading navigation and routes links through Typora, restoring bridges on exit', () => {
+  const h = harness({ RENDER_MODE: 'canvas-editor' });
+  h.sandbox.File.editor.library = { outline: { sentinel: true } };
+  h.plugin.call();
+  assert.equal(h.state.navigationOptions.outline, h.sandbox.File.editor.library.outline);
+  h.state.received.onChange(); h.state.received.onViewportChange();
+  assert.equal(h.state.changed, true); assert.equal(h.state.navigationRefreshed, true); assert.equal(h.state.navigationHighlighted, true);
+  h.state.received.onOpenLink('notes/chapter.md'); assert.equal(h.state.openedUrl, 'notes/chapter.md');
+  assert.equal(h.plugin.rendererWrite.style.display, 'none');
+  h.plugin.close();
+  assert.equal(h.state.navigationDetached, true); assert.equal(h.state.saveDetached, true);
+  assert.equal(h.plugin.rendererWrite.style.display, '');
 });
 
 test('auto-opens on startup and after navigation, but Esc keeps the same file editable', () => {
