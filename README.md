@@ -61,7 +61,7 @@ npm run install:typora -- --resources "D:\Typora\resources"
 
 | 操作 | 快捷键 |
 | --- | --- |
-| 进入 Canvas 阅读 | `Ctrl+Alt+C` |
+| 进入 Canvas 阅读 | `Ctrl+Alt+Shift+F8` |
 | 返回 Typora 编辑 | `Escape` 或工具栏返回按钮 |
 | 搜索全文 | `Ctrl+F` |
 | 下一个 / 上一个匹配块 | 搜索框内 `Enter` / `Shift+Enter` |

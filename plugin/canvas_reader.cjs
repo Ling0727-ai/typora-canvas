@@ -1,7 +1,7 @@
 /* global BasePlugin */
 // Adapter for obgnail/typora_plugin. No edits or saves to the host document.
 class CanvasReaderPlugin extends BasePlugin {
-  hotkey = () => [{ hotkey: this.config.HOTKEY || 'ctrl+alt+c', callback: this.call }];
+  hotkey = () => [{ hotkey: this.config.HOTKEY || 'ctrl+alt+shift+f8', callback: this.call }];
   process = () => {
     const hub = this.utils.eventHub;
     for (const name of ['beforeFileOpen', 'beforeToggleSourceMode', 'fileEdited']) {
