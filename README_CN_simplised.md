@@ -1,0 +1,246 @@
+[English](README.md) | 简体中文
+
+# Typora Canvas
+
+基于 Canvas 的 Typora 渲染实验，目标是让大型 Markdown 文档滚动流畅，同时逐步补齐编辑与兼容能力。
+
+> A Canvas rendering plugin for Typora, exploring smooth large-document rendering and native editing compatibility.
+
+**当前源码：0.6.7，包含混合模式与纯 Canvas 编辑实验。** 项目默认使用混合模式；纯 Canvas 模式使用独立的 Markdown 原文模型、布局、光标和选区，正文通过视口 Canvas 显示；Callout 可复用原插件生成的局部图像缓存。不添加窗口。
+
+已发布的 v0.1.0 是独立、只读的 Canvas 阅读器，功能与本说明不同。
+
+## 纯 Canvas 编辑实验
+
+按照[安装与更新](#安装与更新)准备插件框架、构建并选择对应平台的安装路径。体验本文的可编辑纯 Canvas 模式时，安装命令需显式添加 `--mode canvas-editor`；首次安装不指定模式时使用混合模式。
+
+- Markdown 原文保存在不可变文本结构中，未知语法和已有 CRLF 不经富文本转换，不会因为没有显示效果而被过滤掉。
+- Canvas 绘制正文、表格边框与单元格、光标和选区；只有视口附近的行参与排版。隐藏 textarea 只接收当前编辑范围的键盘和中文输入法输入，不负责显示正文。
+- 支持输入、跨行选区、复制粘贴、撤销/重做、方向键与正则搜索。输入法已测试事件与组合撤销；不同实际输入法仍需持续验证。
+- 右侧保留独立滚动条，Canvas 不覆盖拖动区域。原生大纲使用 Canvas 的标题列表，支持点击/回车跳转、编辑标题后更新及随滚动高亮；退出时恢复原生大纲接口。
+- `Ctrl+单击` 打开 Markdown 链接（macOS 为 `Command+单击`），普通点击继续编辑。网页、相对文件路径交给 Typora 打开，`#标题` 锚点跳到当前 Canvas 文档的标题；Callout 位图内的链接也可打开。引用式链接尚未支持。
+- 基础标题、粗体、斜体、链接文字、引用和代码样式；标题颜色、字号、字重、行高与段落间距读取当前主题。正文的单个或连续空行保留，紧邻标题的空行折叠，标题间距由主题控制；空段落的高度、行高和间距读取主题。Callout 内部空行保留，只折叠每层 Callout 末尾连续的空行；原插件预览同样保留内部空段落，并支持显式 `<br>`。文档原始空行不被删除。
+- 编辑 Callout 或普通引用时显示完整的 `> ` 前缀，包括标题、正文、空引用行及嵌套引用。光标可移到 `>` 前面，按 `Home` 再按 `Enter` 可在当前引用行前插入空行；预览状态隐藏标记。
+- Callout 与普通引用支持 Enter 续写：非空行末尾新增带引用前缀的一行，行中拆分时两行均保留前缀；在只有 `>` 或 `> ` 的空引用行按 Enter，会移除前缀而不新增换行。嵌套空引用退出一层，保留外层引用；引用中的代码块保持代码输入行为。每次操作可单步撤销，保留 CRLF 换行格式。
+- 表格方向键导航：上下键跳到同列相邻行并跳过源码分隔行；左右键在单元格文本内移动，到边界后切换相邻格。表格外侧边界可跳到前后正文；文档开头/末尾没有可用段落时自动补空行，可撤销。Callout 内表格同样支持；`Alt+方向键` 继续移动整行/整列。
+- 行内语法支持嵌套公式，如 `**$a$**`、`*$a$*`、`***$a$***` 和粗体文字夹公式；保留每条公式的原文范围，点击后可展开编辑。粗体/斜体/行内代码/链接的颜色、字体、字重与字号比例，分别从当前主题在正文、各级标题和表格单元格中的实际计算样式读取；公式使用所在位置的字号与颜色。
+- 支持 `---`、`___`、`***` 分隔线，以及带语言的围栏代码块。代码通过独立 Worker 高亮；进入代码块后可切换语言，输入围栏语言时显示建议，支持键盘选择。高亮颜色采样主题的 CodeMirror 语法样式。
+- 行内公式输入完闭合的 `$` 后即可预览；光标进入公式内部时展开源码，离开公式范围即恢复预览，不必离开整行。块公式支持分隔符紧贴公式、多行 `$$…$$` 和 `\[…\]`，进入内部编辑时展开原文。
+- 公式由独立 Worker 中的 MathJax 排版成 SVG 路径，再作为图像画到 Canvas，不复用或修改 Typora 的 MathJax 全局对象。Worker 启动与排队不计入单条公式的 5 秒排版超时；某条失败只回退该条，超时后重建线程继续其余任务，保留已完成的公式，不自动循环重试。多行公式失败保留全部源码，Callout 内也逐条回退。
+- 块公式按实际 SVG 高度（超宽时等比缩放）加上下各 `ceil(字号 × 0.65)` 的间隔占位，普通 Canvas 与 Callout 预览采用同一计算。分式、矩阵和多行环境的高度随内容变化，不套用正文固定行高；块公式不使用行内公式的基线下移。
+- 公式完成时只使引用它的行布局失效，多个结果合并到下一帧更新。图片/公式缓存最多 256 项、32 MiB 解码像素，保护视口附近仍在使用的条目；预算不足时显示源码，避免缓存互相挤出导致反复排版。淘汰资源时取消未执行任务，忽略过期解码结果。
+- GFM 基础表格绘制等宽列、边框、表头、对齐、换行与单元格内公式。编辑单元格时仍保留表格结构；跨列合并、HTML 表格和完整原生列宽算法尚未支持。
+- 光标进入表格后显示操作栏：调整行列数（含表头）、当前列左/中/右对齐、行列插入/删除/移动，以及删除整张表。操作直接修改该表格的 Markdown，每次操作可一次撤销；表格之外的文本保持不变，Callout 引用前缀和单元格公式原文保留。缩小尺寸会移除超出范围的单元格，撤销可以恢复。
+- 表格内 `Tab` / `Shift+Tab` 切换单元格，最后一个单元格按 `Tab` 自动加行；`Enter` 到下一行同列，`Shift+Enter` 插入可渲染的 `<br>` 软换行。`Ctrl+Enter` 在下方插入行，`Ctrl+Shift+Enter` 离开表格；`Alt+↑/↓` 移动当前行，`Alt+←/→` 移动当前列。菜单支持复制表格和格式化表格源码。表头前不插入数据行，第一行数据不能上移为表头。
+- Callout 支持自定义/默认标题、嵌套、`+`/`-`、折叠悬停预览、正文公式与表格。接入已安装 Callouts 模块的类型配置和实际 CSS 颜色、图标、边线、间距；标题与正文分别着色。兼容 `notes`、`importent`、`definitiion`。关闭自定义 Callouts 模块后仅保留原生五类提示块识别。
+- Callout 标记展开时，左右键按源文本移动，上下键跳到相邻文字行，不会停在标题留白内；点击原插件预览的图标区域可以进入 `[!类型]` 的源码。
+- 安装 Callouts 模块时，在屏外创建不注册生命周期的插件实例，限定它只处理当前可见 Callout 的临时 DOM；复用原插件的标题处理和当前 CSS 伪元素、图标、边线、背景与间距，再生成位图画到正文 Canvas。点击内部后使用 Canvas 文档模型编辑，移出后重新生成预览。原插件实例、原文档与另一仓库不被修改。
+- Callout 图像缓存最多 8 项、32 MiB，同时仅处理一个屏外块。单块超过 300 行、60000 字符或 24 MiB 像素预算，或者插件不兼容时，回退至基础 Canvas Callout。截图适配不执行任意其他插件，也不完整复制 Typora 的块解析器；复杂 HTML、外部字体图标等仍可能存在差异。
+- 切换主题、样式表加载或字体加载完成后，在过渡结束时重新读取画布背景、标题/段落字体、表格表头/隔行底色/边框和代码样式，重建公式、图标与 Callout 缓存；行内数学按基线/深度排版，块公式居中。
+- Markdown 图片按需解码并绘制到 Canvas；相对地址由 Typora 当前文档的资源根目录解析。图片和公式资源缓存有数量、字节上限。
+- 安装并启用最新 `obsidian_images` 模块时，复用其 `![[图片.png|C|500]]`、`![[图片.svg|500|R]]` 解析、CSS 装饰和附件查找，支持 `C/R/L` 与像素宽度。库内异步索引完成后再解码，不触发原生全文刷新。普通正文目前支持独立行图片，Callout 位图内也支持图片与文字混排；模块关闭时保留 wiki 图片源码。
+- 图片先由当前主题与图片插件在临时局部 DOM 中布局，读取实际宽高、位置与段落间距后绘制，布局随主题与正文宽度更新。图片路径优先交给插件/Typora 图片接口，随后才使用通用相对路径解析；完整 CSS 滤镜、阴影与边框效果尚未通用实现。
+- `Ctrl+S` 或底部保存按钮经 Typora 自身保存接口写回当前 Markdown。输入时不重新解析隐藏的原生 DOM，退出模式时才同步回原生文档。保存桥接适配本机 Typora 1.14 的内部接口，其他版本仍需验证。
+- 修改后的原文另存恢复副本到 `~/.config/typora-canvas/recovery/`。检测到外部/原生内容变化时暂停写回并保留副本，不静默覆盖。
+- `Esc` 返回原生编辑，`Ctrl+Alt+Shift+F8` 切换插件。浏览器演示中的保存会下载一份 Markdown，不会覆盖浏览器选取的原文件。
+
+**兼容边界：** 任意主题 CSS、脚注、HTML、自定义宏、复杂表格和所有原生插件语法还不能完整重现；未实现的语法仍保存在源文档中。Callout 需要显式的 `>` 引用前缀，尚未完整处理 Markdown 的懒续行规则。Canvas 读取常用语义块的计算样式，Callout 局部复用浏览器排版；整体仍不是通用 CSS 引擎。Callout 位图内首次点击按行近似定位，进入编辑后使用文字的精确命中测试。图片本身已有的背景不会因主题被重新着色。大纲导航已接入 Canvas，其他依赖旧 DOM 的插件操作仍需单独适配。当前按逻辑行虚拟化，特别长的单行、结构修改和大范围选区仍可能增加开销。
+
+纯 Canvas 是可编辑的实验原型，不是 Typora 的完整替代。混合模式可随时保留为对照：设置 `RENDER_MODE = "hybrid"` 并重启。
+
+## 混合模式行为
+
+- 打开文档后自动启动，空白文档也保留正常编辑。
+- 右下角显示小型状态标识：准备、缓存、原生、编辑或输入。它说明实际运行状态，并不保证当前每一块内容都由 Canvas 绘制。
+- 点击正文、选区、输入、中文输入法、撤销都使用原生编辑器，不需要按快捷键切换。
+- 图片、数学公式、SVG、图表、代码编辑组件和部分复杂样式保留原生显示，不替换成源码或占位。
+- 主题与自定义 CSS 继续由 Typora 应用；可缓存内容使用其实际 DOM 尺寸与计算样式生成位图。外部字体、滤镜、阴影、动画等不适合位图的内容会保留原生显示。
+- `Ctrl+F` / `Ctrl+H` 直接交给 Typora，使用其原生查找替换及正则选项。
+- `Ctrl+Alt+Shift+F8` 开关加速层；关闭后当前文档不会立即自动重开，切换文档后恢复默认设置。
+- 源代码模式不挂载加速层，返回渲染模式后自动恢复。
+
+启动兼容处理不只依赖单个文件加载事件：插件启动时主动检查，并周期性检查宿主就绪状态。MathJax 或初始布局引发的 `fileEdited` 只刷新缓存，不再关闭插件。
+
+## 架构与实际限制
+
+```text
+Typora 原生解析、公式与 CSS → 可编辑 DOM（文档与布局的唯一来源）
+                                     ├─ 复杂内容 / 交互 → 原生显示
+                                     └─ 静止普通内容 → 局部位图缓存 → 视口 Canvas
+屏外内容 → 浏览器 content-visibility 优化
+```
+
+Canvas 位图缓存默认上限 24 MiB、最多 128 项；Canvas 背板围绕视口设置。内容、主题与尺寸变化会让缓存失效，任何交互开始前同步恢复原生正文。组件不会重写 Markdown 或替换原生可编辑子树。
+
+**混合方案不是完整的虚拟化编辑器。** 它仍保留全文 DOM、宿主文档模型和布局处理；生成位图也有成本。它不能加速首次解析、消除复杂公式本身的计算，编辑时会恢复原生渲染。使用屏外尺寸估计可能改变未访问内容的滚动高度。是否比原生更快，需要在真实笔记中测量。
+
+混合模式是兼容性基线和过渡方案。纯 Canvas 的长期方向是独立文档模型、增量布局、视口绘制与命中测试；可以复用 Markdown 和数学排版库，不必重写每个基础库。
+
+## 安装与更新
+
+### 前置条件与平台范围
+
+- 安装 Git 与 Node.js；建议使用 CI 验证的 Node.js 22，项目声明的最低版本为 Node.js 20。
+- 先按 [obgnail/typora_plugin 安装教程](https://github.com/obgnail/typora_plugin/blob/master/README-cn.md#如何使用windowslinux-平台)安装并启用插件框架，确认重启 Typora 后可以使用框架插件。本项目安装器只安装 Canvas 扩展，不负责注入框架。
+- 安装目标是**已经包含 `plugin/global/core/index.js` 的资源目录**，不是主题目录，也不是 `plugin` 目录本身。通常是包含 `window.html` 的目录；旧版可能是 `resources/app`。安装器还会检查框架配置中的 `[global].ENABLE` 是否启用。
+
+| 平台 | 安装说明 | 验证范围 |
+| --- | --- | --- |
+| Windows | 默认 `C:\Program Files\Typora\resources`，自定义位置通过 `--resources` 指定 | 三端 CI 通过，真实宿主主要在 Windows Typora 1.14 验证 |
+| Linux | 必须用 `--resources` 指定现有框架资源目录；路径取决于安装包 | CI 的构建、单元测试及 Chromium 回归通过；真实 Typora 待实机验证 |
+| macOS | 上游目前提供的是 Windows/Linux 安装教程；本项目尚无经过验证的 macOS Typora 安装流程 | CI 的构建、单元测试及 Chromium 回归通过，可运行浏览器演示 |
+
+**三端 CI 通过不等于三端 Typora 安装都受支持。** macOS 不应直接套用 Windows 默认路径，也不能只把文件放进应用包就认为框架已加载。
+
+### 获取当前源码并构建
+
+在准备存放源码的目录打开终端：
+
+```bash
+git clone https://github.com/Ling0727-ai/typora-canvas.git
+cd typora-canvas
+npm ci
+npm run build
+```
+
+GitHub Releases 中的 **v0.1.0 是旧的只读阅读器**，不包含当前可编辑模式。需要当前功能时使用 `main` 源码；也可从 [Actions](https://github.com/Ling0727-ai/typora-canvas/actions/workflows/ci.yml) 中选择成功的提交，下载 `typora-canvas-<os>` 构建产物。产物是插件文件，不是独立安装程序；下面的安装脚本命令仍需要源码仓库及 `npm ci`、`npm run build`。
+
+### Windows 安装
+
+在仓库目录执行；写入 `Program Files` 时使用有权限的终端（例如管理员 PowerShell）：
+
+```powershell
+npm run install:typora -- --mode canvas-editor --dry-run
+npm run install:typora -- --mode canvas-editor
+```
+
+自定义路径时，检查和安装两次命令必须使用同一目录：
+
+```powershell
+npm run install:typora -- --resources "D:\Typora\resources" --mode canvas-editor --dry-run
+npm run install:typora -- --resources "D:\Typora\resources" --mode canvas-editor
+```
+
+PowerShell 若拦截 `npm.ps1`，可把命令中的 `npm` 替换为 `npm.cmd`。
+
+### Linux 安装
+
+将示例路径替换为已经安装插件框架的实际目录。这里的 `/usr/share/typora/resources` 只是示例，不是自动探测结果：
+
+```bash
+TYPORA_RESOURCES="/usr/share/typora/resources"
+test -f "$TYPORA_RESOURCES/plugin/global/core/index.js"
+npm run install:typora -- --resources "$TYPORA_RESOURCES" --mode canvas-editor --dry-run
+npm run install:typora -- --resources "$TYPORA_RESOURCES" --mode canvas-editor
+```
+
+若资源目录需要管理员权限，完成普通用户下的依赖安装、构建和 `--dry-run` 检查后，仅将最后的安装命令改为：
+
+```bash
+sudo env "HOME=$HOME" "$(command -v node)" scripts/install.mjs --resources "$TYPORA_RESOURCES" --mode canvas-editor
+```
+
+这里保留当前用户的 `HOME`，使配置和备份仍写入当前用户目录。安装器不会自动提权。
+
+### 启用与模式选择
+
+`--dry-run` 会检查框架、配置和构建文件，并输出将使用的路径，不写入安装文件。确认无误后执行不带 `--dry-run` 的命令，保存笔记，**完全退出并重新打开 Typora**。安装器不会自动关闭 Typora。
+
+| `--mode` / `RENDER_MODE` | 行为 |
+| --- | --- |
+| `canvas-editor` | 本文介绍的可编辑纯 Canvas 实验模式 |
+| `hybrid` | 原生编辑与静态 Canvas 缓存；首次安装不指定模式时使用 |
+| `canvas` | 早期独立只读阅读器，不能编辑 |
+
+更新时不传 `--mode` 会保留已有的 `canvas-editor` 或 `canvas`，其他情况使用 `hybrid`。如需固定模式，请在每次安装时显式指定。安装器保留已有的 `AUTO_OPEN = false`。
+
+安装前备份在 `~/.config/typora-canvas/backups/`。如存在 `~/.config/typora_plugin/settings.user.toml`，优先修改它，否则修改框架目录的用户设置。不改写 Typora 的 `window.html`。
+
+安装器会自动维护 `[canvas_reader]` 节。如需手动调整，修改安装器输出的配置文件中的已有节，不要重复添加。以下示例启用纯 Canvas 编辑模式：
+
+```toml
+[canvas_reader]
+ENABLE = true
+NAME = "Typora Canvas"
+HOTKEY = "ctrl+alt+shift+f8"
+AUTO_OPEN = true
+RENDER_MODE = "canvas-editor"
+CACHE_MB = 24
+```
+
+设置 `AUTO_OPEN = false` 可以改成手动启动。`Ctrl+Alt+Shift+F8` 开关插件，纯 Canvas 模式下按 `Esc` 返回原生编辑。`CACHE_MB` 控制混合模式缓存上限，不是纯 Canvas 资源缓存的统一开关。
+
+### 更新与禁用
+
+在源码仓库目录更新：
+
+```bash
+git pull --ff-only
+npm ci
+npm run build
+```
+
+随后重新执行对应平台的安装命令（保持相同的 `--resources` 和 `--mode`），再完全重启 Typora。**只拉取源码、只修改配置或只重启，都不会更新已安装的运行时。** Typora 或插件框架更新后，也应检查 Canvas 扩展是否仍在目标目录中。
+
+禁用时使用安装时相同的资源目录；Windows 默认路径可省略 `--resources`：
+
+```bash
+npm run uninstall:typora -- --resources "实际的资源目录"
+```
+
+该命令将配置设为禁用，重启后生效，插件文件与备份保留；需要目录写权限时，使用与安装相同的权限方式。不要同时启用其他内容截断插件。
+
+## 搜索
+
+默认混合模式使用 Typora 自带搜索，包括其正则开关。
+
+纯 Canvas 编辑器和独立阅读器支持 `.*` 正则开关，默认忽略大小写，分别逐源码行、逐内容块匹配。计数是匹配行/块数，不是出现次数；跨行/块表达式暂不支持。搜索放在可终止的 Worker 中，超过 1 秒会取消，非法正则显示错误而不阻塞界面。最多返回 5000 个匹配行/块。
+
+## 浏览器演示与验证
+
+```bash
+npm run dev
+npm test
+npm run build
+npx playwright install chromium
+npm run test:browser
+```
+
+本地演示保留独立 Canvas 阅读器，可打开 Markdown 或生成压力测试文件。文件只在本机读取，不上传。
+
+浏览器测试默认使用 Playwright Chromium；也支持 `PLAYWRIGHT_CHANNEL`（如 msedge）或 `PLAYWRIGHT_EXECUTABLE_PATH` 指定现有浏览器。
+
+验证覆盖：
+
+- 高度索引、Unicode 分块、Markdown 解析和配置保留。
+- 自动启动、初始渲染变更不关闭插件、源代码模式返回后恢复。
+- 独立阅读器长文档滚动、搜索、正则错误与灾难性回溯超时、窗口变化和退出。
+- 模拟宿主页面中的原位中文输入、原生撤销、输入法事件、主题切换。
+- 既有 SVG 公式、扩展语法 DOM、主题伪元素的保留与缓存清理。
+- 纯 Canvas 编辑器原文保留、组合输入、撤销、保存桥接、外部变化冲突检测。
+- 可见滚动条点击翻页、大纲点击/回车跳转与编辑同步/高亮、退出恢复宿主接口，以及网页/相对文件/标题锚点和 Callout 内链接的点击命中。
+- 粗体/斜体内公式的源码映射、主题字号与颜色传入排版线程；Obsidian 图片的实际插件解析/异步附件查找、正文与 Callout 图片宽度/对齐像素；Callout 标记两侧与内部的四方向键和首次点击。
+- `\\alpha` 的即时公式预览、光标源码映射、独立 MathJax Worker 与宿主版本隔离。
+- 材料疲劳推导原文中的行内/多行公式、注入单条公式超时后的结果隔离与像素稳定性，以及同屏 100 条公式缓存稳定性。
+- 块公式实际高度与上下间隔、连续公式和后续正文不重叠；分式、矩阵、多行推导在 18/28px 字号、420/900px 宽度下的 Callout 几何验证。
+- Canvas 表格、对齐和单元格公式，以及 10000 行编辑/滚动时有限的正文绘制量与 DOM 节点数。
+- 表格操作栏、调整行列、增删移动、源文本/CRLF/引用保留、一次撤销和单元格键盘导航。
+- Callout 标题/正文源位置映射、嵌套、别名、折叠悬停、插件关闭，以及浅色/深色/纯黑主题的实际画布像素与原文保留。
+- 原 Callouts 插件代码的屏外执行、位图实际文字像素、点击编辑/撤销、主题缓存重建、临时 DOM 回收，以及不修改原插件工具对象和原文档。
+- 多行块公式、分隔线、空行折叠、标题样式、代码高亮及语言选择、表格原生快捷键/复制/格式化；深浅主题只切换一次后的实际表格背景像素。
+
+浏览器演示不依赖另一仓库的本地路径；内置了从 `typora-obsidian-callouts` 同步的默认类型、配色与 SVG 图标。Typora 内优先采用已安装插件和主题 CSS。需要刷新独立演示默认值时执行：
+
+```bash
+node scripts/sync-callouts.mjs --source ../typora-obsidian-callouts
+```
+
+GitHub Actions 在 Windows、macOS、Linux 三个 runner 上分别运行 Node.js 22 单元测试、构建及 Chromium 浏览器回归。macOS 使用 Command 快捷键，Windows/Linux 使用 Ctrl；任务独立执行，一个系统失败不会取消其他系统。支持 push、pull request 和手动触发。每个平台分别上传 `browser-results-<os>`（截图、指标、平台信息及失败诊断）与 `typora-canvas-<os>`（构建的插件文件），保留 7 天。
+
+截图与测试数据在被 Git 忽略的 `test-output/`。这些是浏览器集成测试和模拟宿主接口测试，**不等于真实 Typora 中所有编辑、公式和主题都已完成验证，也没有混合模式的性能提升结论**。跨系统 CI 也不等于已在三系统真实 Typora 中验证安装与宿主接口；安装时仍需使用对应平台的插件框架资源路径。旧版 9001 块合成文档的 Canvas 绘制采样不能作为混合模式的性能数据。
+
+## 后续方向
+
+先在真实课程笔记上比较原生、混合和纯 Canvas 的滚动帧耗时、布局成本、长任务和内存。根据瓶颈决定向纯 Canvas 迁移的优先级：独立文档与选区模型、增量布局、中文输入、数学排版、复杂表格，以及主题兼容边界。
+
+这是社区实验插件，与 Typora 官方无隶属关系。
