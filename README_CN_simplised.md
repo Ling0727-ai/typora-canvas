@@ -6,13 +6,13 @@
 
 > A Canvas rendering plugin for Typora, exploring smooth large-document rendering and native editing compatibility.
 
-**当前源码：0.6.7，包含混合模式与纯 Canvas 编辑实验。** 项目默认使用混合模式；纯 Canvas 模式使用独立的 Markdown 原文模型、布局、光标和选区，正文通过视口 Canvas 显示；Callout 可复用原插件生成的局部图像缓存。不添加窗口。
+**当前源码：0.6.8，包含混合模式与纯 Canvas 编辑实验。** 项目默认使用混合模式；纯 Canvas 模式使用独立的 Markdown 原文模型、布局、光标和选区，正文通过视口 Canvas 显示；Callout 可复用原插件生成的局部图像缓存。不添加窗口。
 
 已发布的 v0.1.0 是独立、只读的 Canvas 阅读器，功能与本说明不同。
 
 ## 纯 Canvas 编辑实验
 
-按照[安装与更新](#安装与更新)准备插件框架、构建并选择对应平台的安装路径。体验本文的可编辑纯 Canvas 模式时，安装命令需显式添加 `--mode canvas-editor`；首次安装不指定模式时使用混合模式。
+按照[安装与更新](#安装与更新)准备插件框架，选择 Release 直接安装或源码构建路线。体验本文的可编辑纯 Canvas 模式时，安装命令需显式添加 `--mode canvas-editor`；首次安装不指定模式时使用混合模式。
 
 - Markdown 原文保存在不可变文本结构中，未知语法和已有 CRLF 不经富文本转换，不会因为没有显示效果而被过滤掉。
 - Canvas 绘制正文、表格边框与单元格、光标和选区；只有视口附近的行参与排版。隐藏 textarea 只接收当前编辑范围的键盘和中文输入法输入，不负责显示正文。
@@ -80,7 +80,7 @@ Canvas 位图缓存默认上限 24 MiB、最多 128 项；Canvas 背板围绕视
 
 ### 前置条件与平台范围
 
-- 安装 Git 与 Node.js；建议使用 CI 验证的 Node.js 22，项目声明的最低版本为 Node.js 20。
+- ZIP 安装不需要 Git 或 Node.js；npm CLI 需要 Node.js，建议使用 CI 验证的 22（最低声明为 20）；Git 仅用于源码构建。
 - 先按 [obgnail/typora_plugin 安装教程](https://github.com/obgnail/typora_plugin/blob/master/README-cn.md#如何使用windowslinux-平台)安装并启用插件框架，确认重启 Typora 后可以使用框架插件。本项目安装器只安装 Canvas 扩展，不负责注入框架。
 - 安装目标是**已经包含 `plugin/global/core/index.js` 的资源目录**，不是主题目录，也不是 `plugin` 目录本身。通常是包含 `window.html` 的目录；旧版可能是 `resources/app`。安装器还会检查框架配置中的 `[global].ENABLE` 是否启用。
 
@@ -92,7 +92,30 @@ Canvas 位图缓存默认上限 24 MiB、最多 128 项；Canvas 背板围绕视
 
 **三端 CI 通过不等于三端 Typora 安装都受支持。** macOS 不应直接套用 Windows 默认路径，也不能只把文件放进应用包就认为框架已加载。
 
-### 获取当前源码并构建
+### 直接安装 Release（无需本地编译）
+
+**ZIP 安装，无需 Node.js：** 从 [Releases](https://github.com/Ling0727-ai/typora-canvas/releases/latest) 下载 `typora-canvas-v0.6.8.zip`，解压后将 **`canvas_reader.js` 和完整的 `canvas_reader/` 文件夹**复制到现有框架的 `plugin/` 目录；更新时一起替换，不要再套一层 `plugin`。手动复制不会执行安装器的自动备份，请先保留旧文件和配置。参照[配置示例](#启用与模式选择)启用 `[canvas_reader]`，保留配置文件中的其他插件设置，最后完全重启 Typora。
+
+**npm 安装，需要 Node.js，但不需要编译：**
+
+```bash
+npm install -g https://github.com/Ling0727-ai/typora-canvas/releases/download/v0.6.8/typora-canvas-0.6.8.tgz
+typora-canvas --mode canvas-editor --dry-run
+typora-canvas --mode canvas-editor
+```
+
+CLI 默认使用 Windows 资源路径。Linux 或自定义安装位置必须指定已有框架目录：
+
+```bash
+typora-canvas --resources "实际的资源目录" --mode canvas-editor --dry-run
+typora-canvas --resources "实际的资源目录" --mode canvas-editor
+```
+
+下载 `.tgz` 后也可执行 `npm install -g ./typora-canvas-0.6.8.tgz`。包内包含编译好的插件和已打包的安装器，无运行时 npm 依赖，也没有构建或安装生命周期脚本。npm 只安装命令，**需要显式运行 `typora-canvas` 才会部署到 Typora**，再完全重启 Typora。仍需已有插件框架及目标目录写权限。支持 `--help`、`--version`、`--uninstall`；禁用时使用相同的 `--resources`。更新时先安装新版 `.tgz`，再运行命令更新 Typora 中的副本。`npm uninstall -g typora-canvas` 只删除 CLI，如需关闭已经部署的插件，应先执行 CLI 的 `--uninstall`。
+
+目前**尚未按包名发布到 npm Registry**，因此还不能直接使用 `npm install -g typora-canvas`；Release 地址安装不需要 npm 账号。macOS 的宿主安装范围见上表。Git 和开发依赖仅在下方源码构建路线中需要；ZIP 安装不需要 Git 或 Node.js。
+
+### 从源码构建（可选）
 
 在准备存放源码的目录打开终端：
 
@@ -103,7 +126,7 @@ npm ci
 npm run build
 ```
 
-GitHub Releases 中的 **v0.1.0 是旧的只读阅读器**，不包含当前可编辑模式。需要当前功能时使用 `main` 源码；也可从 [Actions](https://github.com/Ling0727-ai/typora-canvas/actions/workflows/ci.yml) 中选择成功的提交，下载 `typora-canvas-<os>` 构建产物。产物是插件文件，不是独立安装程序；下面的安装脚本命令仍需要源码仓库及 `npm ci`、`npm run build`。
+GitHub Releases 中的 **v0.1.0 是旧的只读阅读器**，不包含当前可编辑模式。需要当前功能时使用 v0.6.8 或更新版本，或 `main` 源码；也可从 [Actions](https://github.com/Ling0727-ai/typora-canvas/actions/workflows/ci.yml) 中选择成功的提交，下载 `typora-canvas-<os>` 构建产物。`typora-canvas-<os>` 是插件文件，`release-files-<os>` 包含 ZIP、npm 安装包及校验和。下方源码安装命令才需要源码仓库及构建；ZIP/npm 用户可跳过源码路线。
 
 ### Windows 安装
 
@@ -172,7 +195,7 @@ CACHE_MB = 24
 
 ### 更新与禁用
 
-在源码仓库目录更新：
+从源码安装时，在仓库目录更新：
 
 ```bash
 git pull --ff-only

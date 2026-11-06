@@ -1,8 +1,10 @@
 name: Validate
 on:
   push:
+    branches: ['**']
   pull_request:
   workflow_dispatch:
+  workflow_call:
 permissions:
   contents: read
 jobs:
@@ -23,6 +25,8 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
+      - run: npm run package
+      - run: npm run test:package
       - name: Install Chromium and Linux dependencies
         if: runner.os == 'Linux'
         run: npx playwright install --with-deps chromium
@@ -36,6 +40,12 @@ jobs:
           name: browser-results-${{ matrix.os }}
           path: test-output/
           if-no-files-found: ignore
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-files-${{ matrix.os }}
+          path: dist/release/
+          if-no-files-found: error
           retention-days: 7
       - uses: actions/upload-artifact@v4
         with:

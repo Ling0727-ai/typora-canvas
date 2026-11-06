@@ -24,3 +24,6 @@ Sagalaev and highlight.js contributors. The full notice is in
 
 Other dependencies retain their licenses in their respective packages and bundled
 license comments. The project source is MIT licensed as described in `LICENSE`.
+
+The standalone release installer bundles smol-toml (MIT). Its full license is
+included in `canvas_reader/licenses/smol-toml.MIT.txt` in the plugin payload.

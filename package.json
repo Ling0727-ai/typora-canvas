@@ -1,6 +1,6 @@
 {
   "name": "typora-canvas",
-  "version": "0.6.7",
+  "version": "0.6.8",
   "private": true,
   "description": "A Canvas-based rendering plugin for Typora, built for large Markdown documents.",
   "type": "module",
@@ -13,7 +13,9 @@
     "test": "node --test test/*.test.mjs",
     "test:browser": "node test/browser.mjs",
     "install:typora": "node scripts/install.mjs",
-    "uninstall:typora": "node scripts/install.mjs --uninstall"
+    "uninstall:typora": "node scripts/install.mjs --uninstall",
+    "package": "node scripts/package.mjs",
+    "test:package": "node scripts/test-package.mjs"
   },
   "dependencies": {
     "@codemirror/state": "6.5.2",
@@ -25,6 +27,7 @@
   },
   "devDependencies": {
     "esbuild": "0.25.12",
+    "fflate": "0.8.2",
     "playwright": "1.56.1"
   }
 }
