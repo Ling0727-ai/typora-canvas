@@ -1,5 +1,5 @@
 /* global BasePlugin */
-// Adapter for obgnail/typora_plugin. No edits or saves to the host document.
+// Adapter for obgnail/typora_plugin. Editable Canvas uses an explicit save bridge.
 class CanvasReaderPlugin extends BasePlugin {
   autoTimer = null;
   pollTimer = null;
@@ -16,7 +16,9 @@ class CanvasReaderPlugin extends BasePlugin {
     // MathJax / initial document rendering also emits fileEdited. Do not treat
     // these events as the user disabling the plugin, or AUTO_OPEN never sticks.
     hub.on(hub.eventType.fileEdited, () => this.reader?.invalidate?.());
-    hub.on(hub.eventType.fileContentLoaded, this.contentReady);
+    hub.on(hub.eventType.fileContentLoaded, () => {
+      this.canvasBridge?.checkExternal(); this.contentReady();
+    });
     hub.on(hub.eventType.allPluginsHadInjected, this.contentReady);
     // Fallback for host versions where fileContentLoaded is missed on startup.
     // It only checks readiness / source mode; it never parses or redraws text.
@@ -50,7 +52,14 @@ class CanvasReaderPlugin extends BasePlugin {
   };
   teardown = (restoreFocus = true) => {
     if (!this.reader) return;
-    this.reader.destroy(); this.reader = null;
+    const reader = this.reader; this.reader = null;
+    // Native DOM must be visible again before its single deferred parse on exit.
+    if (this.previousWriteDisplay !== undefined && this.rendererWrite) {
+      this.rendererWrite.style.display = this.previousWriteDisplay;
+      this.previousWriteDisplay = undefined;
+    }
+    this.canvasBridge?.detach(); this.canvasBridge = null;
+    reader.destroy();
     if (this.previousStyle) {
       Object.assign(this.content.style, this.previousStyle);
       this.content.scrollTop = this.previousScrollTop;
@@ -79,7 +88,7 @@ class CanvasReaderPlugin extends BasePlugin {
       }
       const markdown = this.utils.getCurrentFileContent();
       if (typeof markdown !== 'string') throw new Error('Typora did not return Markdown text');
-      if (automatic && !markdown.trim()) return;
+      if (automatic && mode !== 'canvas-editor' && !markdown.trim()) return;
       const { mountReader } = runtime;
       this.previousFocus = document.activeElement;
       this.previousStyle = { visibility: this.content.style.visibility, overflow: this.content.style.overflow,
@@ -89,8 +98,35 @@ class CanvasReaderPlugin extends BasePlugin {
       if (getComputedStyle(this.content).position === 'static') this.content.style.position = 'relative';
       this.content.style.overflow = 'hidden';
       this.content.scrollTop = 0;
-      this.reader = mountReader({ markdown, title: this.utils.getFilePath().split(/[\\/]/).pop() || '未命名',
-        onClose: this.close, parent: this.content, embedded: true });
+      if (mode === 'canvas-editor') {
+        const nativeStyle = getComputedStyle(this.rendererWrite);
+        this.reader = runtime.mountCanvasEditor({ markdown, parent: this.content, embedded: true, onClose: this.close,
+          initialDirty: typeof File.isDocumentEdited === 'function' ? File.isDocumentEdited() : !!File.needSaveState,
+          onChange: () => this.canvasBridge?.changed(), onSave: () => this.canvasBridge.save(),
+          resolveImage: source => {
+            if (/^(?:https?:|data:|blob:|file:)/i.test(source)) return source;
+            return require('url').pathToFileURL(this.utils.resolveLocalPath(decodeURI(source))).href;
+          }, theme: { color: nativeStyle.color, fontFamily: nativeStyle.fontFamily, fontSize: nativeStyle.fontSize,
+            background: getComputedStyle(document.body).backgroundColor === 'rgba(0, 0, 0, 0)' ? '#fafbfd' : getComputedStyle(document.body).backgroundColor } });
+        this.canvasBridge = runtime.attachCanvasHost({ file: File, editor: this.reader,
+          onConflict: message => this.reader?.setStatus(message), onRecovery: source => {
+          const fs = require('fs'), path = require('path');
+          const folder = path.join(require('os').homedir(), '.config', 'typora-canvas', 'recovery');
+          const filename = require('crypto').createHash('sha256').update(this.documentPath || 'untitled').digest('hex') + '.json';
+          try {
+            fs.mkdirSync(folder, { recursive: true });
+            const target = path.join(folder, filename);
+            fs.writeFileSync(target + '.tmp', JSON.stringify({ file: this.documentPath, updatedAt: new Date().toISOString(), markdown: source }));
+            fs.renameSync(target + '.tmp', target);
+          } catch (error) { console.error('[Typora Canvas] recovery failed', error); }
+        } });
+        this.previousWriteDisplay = this.rendererWrite.style.display;
+        this.rendererWrite.style.display = 'none';
+        console.info('[Typora Canvas] pure Canvas editor active; original Markdown preserved');
+      } else {
+        this.reader = mountReader({ markdown, title: this.utils.getFilePath().split(/[\\/]/).pop() || '未命名',
+          onClose: this.close, parent: this.content, embedded: true });
+      }
       this.content.style.visibility = 'hidden';
     } catch (error) {
       this.close(); console.error('[Typora Canvas]', error);

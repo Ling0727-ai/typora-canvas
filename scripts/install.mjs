@@ -8,14 +8,15 @@ import { parse } from 'smol-toml';
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 async function exists(path) { try { await access(path); return true; } catch { return false; } }
 
-export function configure(raw, enable) {
+export function configure(raw, enable, { mode } = {}) {
   const before = parse(raw);
   if (before.canvas_reader && typeof before.canvas_reader !== 'object') throw new Error('canvas_reader must be a TOML table');
   const pattern = /^\[canvas_reader\][^\r\n]*\r?\n[\s\S]*?(?=^\[|$(?![\s\S]))/m;
   let section = raw.match(pattern)?.[0] || '[canvas_reader]\n';
   const values = { ENABLE: String(enable), NAME: '"Typora Canvas"', HOTKEY: '"ctrl+alt+shift+f8"',
     AUTO_OPEN: before.canvas_reader?.AUTO_OPEN === false ? 'false' : 'true',
-    RENDER_MODE: before.canvas_reader?.RENDER_MODE === 'canvas' ? '"canvas"' : '"hybrid"' };
+    RENDER_MODE: JSON.stringify(mode || (['canvas', 'canvas-editor'].includes(before.canvas_reader?.RENDER_MODE)
+      ? before.canvas_reader.RENDER_MODE : 'hybrid')) };
   for (const [key, value] of Object.entries(values)) {
     if (!enable && key !== 'ENABLE') continue;
     const assignment = new RegExp(`^${key}\\s*=.*$`, 'm');
@@ -44,7 +45,9 @@ async function main() {
   const config = await exists(homeConfig) ? homeConfig : localConfig;
   const original = await exists(config) ? await readFile(config, 'utf8') : '';
   const enabled = !args.includes('--uninstall');
-  const modified = configure(original, enabled);
+  const modeAt = args.indexOf('--mode'), mode = modeAt < 0 ? undefined : args[modeAt + 1];
+  if (modeAt >= 0 && !['hybrid', 'canvas', 'canvas-editor'].includes(mode)) throw new Error('--mode 必须是 hybrid、canvas 或 canvas-editor');
+  const modified = configure(original, enabled, { mode });
   const defaults = parse(await readFile(join(pluginRoot, 'global/settings/settings.default.toml'), 'utf8'));
   const local = await exists(localConfig) ? parse(await readFile(localConfig, 'utf8')) : {};
   const home = await exists(homeConfig) ? parse(await readFile(homeConfig, 'utf8')) : {};
@@ -84,7 +87,7 @@ async function main() {
     else if (enabled) await rm(targetAssets, { recursive: true, force: true });
     throw error;
   }
-  console.log(enabled ? '安装完成。保存笔记并重启 Typora，默认混合渲染，原生公式/CSS/编辑/正则搜索保留。Ctrl+Alt+Shift+F8 切换加速开关。' : '已禁用。重启 Typora 后生效，插件文件保留，便于恢复。');
+  console.log(enabled ? `安装完成。模式：${parse(modified).canvas_reader.RENDER_MODE}。保存笔记并重启 Typora。Ctrl+Alt+Shift+F8 切换开关。` : '已禁用。重启 Typora 后生效，插件文件保留，便于恢复。');
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   main().catch(error => { console.error(error.message); process.exitCode = 1; });

@@ -1,14 +1,23 @@
 import { mountReader } from './reader.js';
 import { mountHybrid } from './hybrid.js';
+import { mountCanvasEditor } from './editor.js';
 // Also expose the mounting API for the standalone integration harness.
 window.mountCanvasReader = mountReader;
 window.mountCanvasHybrid = mountHybrid;
+window.mountPureCanvasEditor = mountCanvasEditor;
 
 let reader;
 const status = document.querySelector('#status');
 function open(markdown, title) {
   reader?.destroy();
-  reader = mountReader({ markdown, title, onClose: () => { reader = null; status.textContent = '已返回。可以重新打开演示或本地文件。'; } });
+  const onClose = () => { reader?.destroy(); reader = null; status.textContent = '已返回。可以重新打开演示或本地文件。'; };
+  if (document.querySelector('#mode')?.value === 'canvas-editor') {
+    reader = mountCanvasEditor({ markdown, onClose, onSave: async source => {
+      const url = URL.createObjectURL(new Blob([source], { type: 'text/markdown;charset=utf-8' }));
+      const a = document.createElement('a'); a.href = url; a.download = title.endsWith('.md') ? title : `${title}.md`;
+      a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } });
+  } else reader = mountReader({ markdown, title, onClose });
   window.demoReader = reader;
 }
 document.querySelector('#sample').onclick = () => {

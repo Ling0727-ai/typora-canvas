@@ -10,8 +10,9 @@ input[type=number]{width:100px;padding:8px;border:1px solid #b8c8de;border-radiu
 </style></head><body><main>
 <h1>Typora Canvas</h1><p>Typora 插件的 Canvas 阅读渲染原型</p>
 <p>全文按块建立高度索引，只排版视口附近内容。Canvas 尺寸随窗口变化，与全文长度无关。</p>
+<p>模式 <select id="mode" aria-label="渲染模式"><option value="reader">Canvas 阅读器</option><option value="canvas-editor">纯 Canvas 编辑实验</option></select></p>
 <p>压力测试章节数 <input id="sections" type="number" min="1" max="10000" value="1000" aria-label="压力测试章节数"></p>
 <button id="sample">打开压力测试</button> <label>打开本地 Markdown<input id="file" type="file" accept=".md,.markdown,.txt,text/plain"></label>
-<p class="muted">文件只在本机读取。第一版支持基础文字、标题、列表、引用、代码与表格；公式为源码，图片为占位文字。暂不支持文字选择、链接跳转和原生主题。</p>
+<p class="muted">文件只在本机读取。纯 Canvas 编辑实验支持源码无损编辑、选区、撤销、正则搜索以及公式和图片绘制；当前编辑行显示 Markdown 原文。保存会下载一份 .md 文件，不会覆盖浏览器选取的原文件。</p>
 <p class="muted"><code>Ctrl+F</code> 搜索全文，<code>Enter</code> 下一个匹配块，<code>Esc</code> 返回。</p><p id="status" role="status"></p>
 </main><script src="/demo.js"></script></body></html>

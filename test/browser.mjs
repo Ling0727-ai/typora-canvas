@@ -147,8 +147,94 @@ try {
   assert.equal(await page.locator('.tc-hybrid-cached').count(), 0);
   // Chromium's native contenteditable undo may leave semantically empty style="".
   assert.equal((await page.locator('#write').innerHTML()).replace(/ style=""/g, ''), original);
+  const pureSource = '# Pure Canvas\n\n正文 **粗体** 与 $x^2$。\n\n$$\n\\frac{1}{2}+\\int_0^1 x^2 dx\n$$\n\n![square](data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20width=%2260%22%20height=%2240%22%3E%3Crect%20width=%2260%22%20height=%2240%22%20fill=%22red%22/%3E%3C/svg%3E)\n\n尾行';
+  await page.evaluate(source => {
+    window.pure = window.module.exports.mountCanvasEditor({ markdown: source, onSave: async value => { window.pureSaved = value; } });
+  }, pureSource);
+  await page.waitForFunction(() => window.pure.getStats().readyAssets >= 3);
+  const pureHost = page.locator('[data-typora-canvas-editor]');
+  assert.equal(await pureHost.locator('p,h1,mjx-container,img,[contenteditable=true]').count(), 0);
+  assert.equal(await pureHost.locator('textarea').count(), 1);
+  await page.keyboard.press('Control+End');
+  await page.keyboard.insertText(' 编辑成功');
+  assert.equal(await page.evaluate(() => window.pure.getText()), pureSource + ' 编辑成功');
+  await page.keyboard.press('Control+z');
+  assert.equal(await page.evaluate(() => window.pure.getText()), pureSource);
+  await page.keyboard.press('Control+Shift+z');
+  assert.equal(await page.evaluate(() => window.pure.getText()), pureSource + ' 编辑成功');
+  // Composition updates the scoped input, not a full-document DOM editor.
+  await pureHost.locator('textarea').dispatchEvent('compositionstart');
+  await page.keyboard.insertText('中文组合');
+  await pureHost.locator('textarea').dispatchEvent('compositionend');
+  await page.waitForTimeout(20);
+  assert.equal(await page.evaluate(() => window.pure.getText()), pureSource + ' 编辑成功中文组合');
+  await page.keyboard.press('Control+z');
+  assert.equal(await page.evaluate(() => window.pure.getText()), pureSource + ' 编辑成功');
+  await page.keyboard.press('Control+s');
+  await page.waitForFunction(() => window.pureSaved !== undefined);
+  assert.equal(await page.evaluate(() => window.pureSaved), pureSource + ' 编辑成功');
+  await page.keyboard.press('Control+f');
+  await pureHost.getByRole('button', { name: '正则表达式', exact: true }).click();
+  await pureHost.getByRole('searchbox').fill('^# Pure Canvas$');
+  await pureHost.locator('.find-status').filter({ hasText: '1/1 行' }).waitFor();
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(150);
+  const inkPixels = await pureHost.locator('canvas').evaluate(el => {
+    const data = el.getContext('2d').getImageData(0, 0, el.width, el.height).data;
+    let ink = 0; for (let i = 0; i < data.length; i += 4) if (data[i + 3] > 0 && data[i] < 180 && data[i + 1] < 180 && data[i + 2] < 180) ink++;
+    return ink;
+  });
+  assert.ok(inkPixels > 100, `Expected Canvas text pixels, got ${inkPixels}`);
+  await page.screenshot({ path: 'test-output/pure-canvas-editor.png', caret: 'initial' });
+  const pureStats = await page.evaluate(() => window.pure.getStats());
+  await page.evaluate(() => window.pure.destroy());
+  // The host's own MathJax object must remain untouched by our isolated worker.
+  await page.evaluate(() => {
+    window.MathJax = Object.freeze({ version: '4.1.0', config: Object.freeze({ sentinel: true }) });
+    window.pure = window.module.exports.mountCanvasEditor({ markdown: '' });
+  });
+  await page.keyboard.type('$\\alpha$');
+  await page.waitForFunction(() => window.pure.getStats().previewFormulas === 1);
+  assert.equal(await page.evaluate(() => window.pure.getText()), '$\\alpha$');
+  assert.equal(await page.evaluate(() => window.MathJax.config.sentinel), true);
+  await page.keyboard.press('ArrowLeft');
+  await page.waitForFunction(() => window.pure.getStats().previewFormulas === 0);
+  await page.keyboard.press('ArrowRight');
+  await page.waitForFunction(() => window.pure.getStats().previewFormulas === 1);
+  await page.screenshot({ path: 'test-output/alpha-preview.png', caret: 'initial' });
+  await page.evaluate(() => window.pure.destroy());
+  const tableSource = '| 循环形式 | 最大值与最小值 | 平均应力 | 应力幅 |\n| --- | :---: | :---: | ---: |\n| 静应力 | $\\sigma_{\\min}=\\sigma_{\\max}$ | $\\sigma_{\\max}$ | 0 |\n| 对称循环 | $\\sigma_{\\min}=-\\sigma_{\\max}$ | 0 | $\\sigma_{\\max}$ |';
+  await page.evaluate(source => { window.pure = window.module.exports.mountCanvasEditor({ markdown: source }); }, tableSource);
+  await page.waitForFunction(() => window.pure.getStats().previewFormulas >= 4 && window.pure.getStats().drawnTables === 3);
+  assert.equal(await page.locator('[data-typora-canvas-editor] table').count(), 0);
+  await page.screenshot({ path: 'test-output/canvas-table.png', caret: 'initial' });
+  await page.keyboard.press('Control+End');
+  await page.keyboard.press('Home');
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.insertText('修改');
+  assert.ok((await page.evaluate(() => window.pure.getText())).includes('|修改 对称循环'));
+  await page.waitForFunction(() => window.pure.getStats().drawnTables === 3);
+  await page.evaluate(() => window.pure.destroy());
+  const bigSource = Array.from({ length: 10000 }, (_, i) => `第 ${i + 1} 行：Canvas 文档模型与视口绘制。`).join('\n');
+  await page.evaluate(source => { window.pure = window.module.exports.mountCanvasEditor({ markdown: source }); }, bigSource);
+  await page.waitForFunction(() => window.pure.getStats().drawnLines > 0);
+  const bigBefore = await page.evaluate(() => window.pure.getStats());
+  assert.ok(bigBefore.drawnLines < 100);
+  assert.ok(bigBefore.scopedInputLength < 100);
+  await page.keyboard.press('Control+End');
+  await page.keyboard.insertText('X');
+  assert.equal(await page.evaluate(() => window.pure.getText()), bigSource + 'X');
+  assert.equal((await page.evaluate(() => window.pure.getStats())).structureRebuilds, bigBefore.structureRebuilds);
+  for (const i of [200, 4000, 8000]) {
+    await page.evaluate(i => window.pure.scrollToLine(i), i); await page.waitForTimeout(80);
+  }
+  const bigAfter = await page.evaluate(() => window.pure.getStats());
+  assert.equal(bigAfter.domNodes, bigBefore.domNodes);
+  assert.ok(bigAfter.cachedLayouts <= 256);
+  await page.evaluate(() => window.pure.destroy());
+  assert.equal(await page.locator('[data-typora-canvas-editor]').count(), 0);
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ passed: true, initial, searched, resized, hybridStats }, null, 2));
+  console.log(JSON.stringify({ passed: true, initial, searched, resized, hybridStats, pureStats, bigAfter }, null, 2));
 } finally {
   await browser?.close(); server.kill();
 }

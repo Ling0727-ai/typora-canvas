@@ -2,7 +2,10 @@ import { build } from 'esbuild';
 import { mkdir, copyFile, readFile, writeFile } from 'node:fs/promises';
 await mkdir('dist/plugin/canvas_reader', { recursive: true });
 await mkdir('dist/demo', { recursive: true });
-const common = { bundle: true, loader: { '.css': 'text' }, target: 'chrome120', sourcemap: true, legalComments: 'eof' };
+const worker = await build({ entryPoints: ['src/formula-worker.js'], bundle: true, platform: 'browser',
+  format: 'iife', write: false, target: 'chrome120', define: { global: 'globalThis' } });
+const common = { bundle: true, loader: { '.css': 'text' }, target: 'chrome120', sourcemap: true, legalComments: 'eof',
+  define: { __MATH_WORKER_SOURCE__: JSON.stringify(worker.outputFiles[0].text) } };
 await Promise.all([
   build({ ...common, entryPoints: ['src/runtime.js'], outfile: 'dist/plugin/canvas_reader/runtime.cjs', format: 'cjs', platform: 'browser' }),
   build({ ...common, entryPoints: ['src/demo.js'], outfile: 'dist/demo/demo.js', format: 'iife', platform: 'browser' }),
