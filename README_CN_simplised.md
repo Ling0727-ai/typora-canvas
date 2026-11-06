@@ -6,7 +6,7 @@
 
 > A Canvas rendering plugin for Typora, exploring smooth large-document rendering and native editing compatibility.
 
-**当前源码：0.6.13，包含混合模式与纯 Canvas 编辑实验。** 项目默认使用混合模式；纯 Canvas 模式使用独立的 Markdown 原文模型、布局、光标和选区，正文通过视口 Canvas 显示；Callout 可复用原插件生成的局部图像缓存。不添加窗口。
+**当前源码：0.6.14，包含混合模式与纯 Canvas 编辑实验。** 项目默认使用混合模式；纯 Canvas 模式使用独立的 Markdown 原文模型、布局、光标和选区，正文通过视口 Canvas 显示；Callout 可复用原插件生成的局部图像缓存。不添加窗口。
 
 已发布的 v0.1.0 是独立、只读的 Canvas 阅读器，功能与本说明不同。
 
@@ -97,7 +97,7 @@ Canvas 位图缓存默认上限 24 MiB、最多 128 项；Canvas 背板围绕视
 
 ### 直接安装 Release（无需本地编译）
 
-**ZIP 安装，无需 Node.js：** 从 [Releases](https://github.com/Ling0727-ai/typora-canvas/releases/latest) 下载 `typora-canvas-v0.6.13.zip`，解压后将 **`canvas_reader.js` 和完整的 `canvas_reader/` 文件夹**复制到现有框架的 `plugin/` 目录；更新时一起替换，不要再套一层 `plugin`。手动复制不会执行安装器的自动备份，请先保留旧文件和配置。参照[配置示例](#启用与模式选择)启用 `[canvas_reader]`，保留配置文件中的其他插件设置，最后完全重启 Typora。
+**ZIP 安装，无需 Node.js：** 从 [Releases](https://github.com/Ling0727-ai/typora-canvas/releases/latest) 下载 `typora-canvas-v0.6.14.zip`，解压后将 **`canvas_reader.js` 和完整的 `canvas_reader/` 文件夹**复制到现有框架的 `plugin/` 目录；更新时一起替换，不要再套一层 `plugin`。手动复制不会执行安装器的自动备份，请先保留旧文件和配置。参照[配置示例](#启用与模式选择)启用 `[canvas_reader]`，保留配置文件中的其他插件设置，最后完全重启 Typora。
 
 **npm 安装，需要 Node.js，但不需要编译：**
 
@@ -114,9 +114,9 @@ typora-canvas --resources "实际的资源目录" --mode canvas-editor --dry-run
 typora-canvas --resources "实际的资源目录" --mode canvas-editor
 ```
 
-下载 `.tgz` 后也可执行 `npm install -g ./ling0727-ai-typora-canvas-0.6.13.tgz`。包内包含编译好的插件和已打包的安装器，无运行时 npm 依赖，也没有构建或安装生命周期脚本。npm 只安装命令，**需要显式运行 `typora-canvas` 才会部署到 Typora**，再完全重启 Typora。仍需已有插件框架及目标目录写权限。支持 `--help`、`--version`、`--uninstall`；禁用时使用相同的 `--resources`。更新时执行 `npm install -g @ling0727-ai/typora-canvas@latest`，再运行 CLI 更新 Typora 中的副本。`npm uninstall -g @ling0727-ai/typora-canvas` 只删除 CLI，如需关闭已经部署的插件，应先执行 CLI 的 `--uninstall`。
+下载 `.tgz` 后也可执行 `npm install -g ./ling0727-ai-typora-canvas-0.6.14.tgz`。包内包含编译好的插件和已打包的安装器，无运行时 npm 依赖，也没有构建或安装生命周期脚本。npm 只安装命令，**需要显式运行 `typora-canvas` 才会部署到 Typora**，再完全重启 Typora。仍需已有插件框架及目标目录写权限。支持 `--help`、`--version`、`--uninstall`；禁用时使用相同的 `--resources`。更新时执行 `npm install -g @ling0727-ai/typora-canvas@latest`，再运行 CLI 更新 Typora 中的副本。`npm uninstall -g @ling0727-ai/typora-canvas` 只删除 CLI，如需关闭已经部署的插件，应先执行 CLI 的 `--uninstall`。
 
-公开 npm 包名为 [`@ling0727-ai/typora-canvas`](https://www.npmjs.com/package/@ling0727-ai/typora-canvas)，请使用带作用域的名称；不带作用域的 `typora-canvas` 不是本项目的发行包。可用 `@ling0727-ai/typora-canvas@0.6.13` 固定版本，也可从 Release 地址安装：`https://github.com/Ling0727-ai/typora-canvas/releases/download/v0.6.13/ling0727-ai-typora-canvas-0.6.13.tgz`。macOS 的宿主安装范围见上表。Git 和开发依赖仅在下方源码构建路线中需要；ZIP 安装不需要 Git 或 Node.js。
+公开 npm 包名为 [`@ling0727-ai/typora-canvas`](https://www.npmjs.com/package/@ling0727-ai/typora-canvas)，请使用带作用域的名称；不带作用域的 `typora-canvas` 不是本项目的发行包。可用 `@ling0727-ai/typora-canvas@0.6.14` 固定版本，也可从 Release 地址安装：`https://github.com/Ling0727-ai/typora-canvas/releases/download/v0.6.14/ling0727-ai-typora-canvas-0.6.14.tgz`。macOS 的宿主安装范围见上表。Git 和开发依赖仅在下方源码构建路线中需要；ZIP 安装不需要 Git 或 Node.js。
 
 ### 从源码构建（可选）
 
@@ -129,7 +129,7 @@ npm ci
 npm run build
 ```
 
-GitHub Releases 中的 **v0.1.0 是旧的只读阅读器**，不包含当前可编辑模式。需要当前功能时使用 v0.6.13 或更新版本，或 `main` 源码；也可从 [Actions](https://github.com/Ling0727-ai/typora-canvas/actions/workflows/ci.yml) 中选择成功的提交，下载 `typora-canvas-<os>` 构建产物。`typora-canvas-<os>` 是插件文件，`release-files-<os>` 包含 ZIP、npm 安装包及校验和。下方源码安装命令才需要源码仓库及构建；ZIP/npm 用户可跳过源码路线。
+GitHub Releases 中的 **v0.1.0 是旧的只读阅读器**，不包含当前可编辑模式。需要当前功能时使用 v0.6.14 或更新版本，或 `main` 源码；也可从 [Actions](https://github.com/Ling0727-ai/typora-canvas/actions/workflows/ci.yml) 中选择成功的提交，下载 `typora-canvas-<os>` 构建产物。`typora-canvas-<os>` 是插件文件，`release-files-<os>` 包含 ZIP、npm 安装包及校验和。下方源码安装命令才需要源码仓库及构建；ZIP/npm 用户可跳过源码路线。
 
 ### Windows 安装
 

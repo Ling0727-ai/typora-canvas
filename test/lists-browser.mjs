@@ -139,10 +139,28 @@ export async function testLists(page) {
   for (let i = 0; i < blocks.indexOf('Alpha') + 5; i++) await page.keyboard.press('ArrowRight');
   await page.keyboard.press('Enter');
   assert.equal(await page.evaluate(() => window.pure.getText()), blocks.replace('a. Alpha\n  > b. Beta', 'a. Alpha\n  > b. \n  > c. Beta'));
+  // Let captures finish with shifted source-line IDs before undo. Otherwise
+  // a fast undo can hide stale-cache entries and make this regression flaky.
+  await page.keyboard.press('Control+End');
+  await page.waitForFunction(() => window.pure.getStats().nativeCallouts.drawnSlices >= 8);
+  assert.equal((await page.evaluate(() => window.pure.getStats())).nativeCallouts.cached, 2,
+    'inserting a list item must retire the Callout cache at its previous line ID');
   await page.keyboard.press('Control+z');
   assert.equal(await page.evaluate(() => window.pure.getText()), blocks);
   await page.keyboard.press('Control+End');
   await page.waitForFunction(() => window.pure.getStats().nativeCallouts.ready === 2);
+  assert.equal((await page.evaluate(() => window.pure.getStats())).nativeCallouts.cached, 2);
+  for (let round = 0; round < 5; round++) {
+    await page.keyboard.press('Control+y');
+    await page.keyboard.press('Control+End');
+    await page.waitForFunction(() => window.pure.getStats().nativeCallouts.ready === 2 && window.pure.getStats().nativeCallouts.drawnSlices >= 8);
+    await page.keyboard.press('Control+z');
+    await page.keyboard.press('Control+End');
+    await page.waitForFunction(() => window.pure.getStats().nativeCallouts.ready === 2 && window.pure.getStats().nativeCallouts.drawnSlices >= 7);
+    const cached = await page.evaluate(() => window.pure.getStats().nativeCallouts);
+    assert.equal(cached.cached, 2); assert.deepEqual(cached.errors, []);
+  }
+  assert.equal(await page.evaluate(() => window.pure.getText()), blocks);
   await page.evaluate(() => window.pure.destroy());
   console.log('Lists: theme markers/indent, mixed nesting, continuation, hanging wraps, math, editing/undo and theme change passed');
 }

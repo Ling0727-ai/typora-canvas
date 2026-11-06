@@ -267,6 +267,8 @@ try {
 } catch (error) {
   await mkdir('test-output', { recursive: true });
   await writeFile('test-output/failure.txt', `${process.platform}/${process.arch} Node ${process.version}\n${error.stack || error}`);
+  await page?.evaluate(() => window.pure?.getStats()).then(stats =>
+    writeFile('test-output/failure-stats.json', JSON.stringify(stats ?? null, null, 2))).catch(() => {});
   await page?.screenshot({ path: 'test-output/failure.png', timeout: 5000 }).catch(() => {});
   throw error;
 } finally {

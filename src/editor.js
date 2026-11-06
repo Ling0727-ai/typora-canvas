@@ -265,6 +265,16 @@ export function mountCanvasEditor({ markdown = '', parent = document.body, embed
   function rebuild() {
     structureRebuilds++;
     rows = classifyLines(model.doc, { customCallouts: calloutTheme.customEnabled, parseImage: images?.parse }); layouts.clear();
+    // A structural edit shifts source-line IDs. Retire captures whose Callout
+    // no longer exists, including pending captures, before enforcing budgets.
+    // Unrelated surviving blocks retain their decoded images.
+    const currentGroups = new Map(rows.calloutGroups.map(group => [group.id, group]));
+    for (const [id, entry] of calloutCache) {
+      const group = currentGroups.get(id);
+      if (group) { entry.group = group; continue; }
+      if (entry.image) { calloutBytes -= entry.bytes; entry.image.width = entry.image.height = 0; }
+      calloutCache.delete(id);
+    }
     for (const entry of assets.values()) entry.dependents.clear();
     refreshTableSelection(false);
     openCallouts = effectiveOpenCallouts(activeLines());
@@ -390,7 +400,8 @@ export function mountCanvasEditor({ markdown = '', parent = document.body, embed
         if (calloutBytes + bytes > 32 * 1024 * 1024) { result.image.width = result.image.height = 0; throw new Error('Callout cache budget exceeded'); }
         Object.assign(pending, result, { status: 'ready', bytes }); calloutBytes += bytes;
         layouts.clear();
-        for (let j = group.start; j <= group.end && j < rows.length; j++) heights.update(j, Math.max(.01, pending.starts[j - group.start + 1] - pending.starts[j - group.start]));
+        const current = pending.group;
+        for (let j = current.start; j <= current.end && j < rows.length; j++) heights.update(j, Math.max(.01, pending.starts[j - current.start + 1] - pending.starts[j - current.start]));
         schedule();
       }).catch(error => {
         if (disposed || calloutCache.get(group.id) !== pending) return;
