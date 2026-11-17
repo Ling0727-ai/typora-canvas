@@ -1,4 +1,4 @@
-import { CanvasDocument, classifyLines, inputDiff } from './editor-model.js';
+import { CanvasDocument, classifyLines, inputDiff, editingSourceRange } from './editor-model.js';
 import { layoutSourceLine, hitSource, caretSource, editorFont } from './editor-layout.js';
 import { FormulaEngine } from './formula-client.js';
 import { headingIndex, anchorHeading, sourceLinks, safeLink } from './navigation.js';
@@ -107,6 +107,13 @@ export function mountCanvasEditor({ markdown = '', parent = document.body, embed
           (model.head === line.from || model.head === line.to);
         if (boundary) result.delete(i);
         else for (let j = group.start; j <= group.end; j++) result.add(j);
+      }
+      if (sourceActivated) {
+        const radius = Math.max(4, Math.ceil(height / (fontSize * 1.7)));
+        for (let i = first; i <= last; i++) {
+          const range = editingSourceRange(rows, i, radius);
+          if (range) for (let j = range.start; j <= range.end; j++) result.add(j);
+        }
       }
     }
     return result;
@@ -955,6 +962,7 @@ export function mountCanvasEditor({ markdown = '', parent = document.body, embed
       table: tableSelection ? { row: tableSelection.row, column: tableSelection.column, rows: tableSelection.rowCount, columns: tableSelection.columns } : null,
       failedAssets: [...assets.values()].filter(a => a.status === 'error').length,
       structureRebuilds, selection: model.selection,
+      sourceLines: previousRaw.size,
       scopedInputLength: input.value.length }), destroy() {
       if (disposed) return; disposed = true; cancelAnimationFrame(raf); clearTimeout(searchTimer); search.cancel(); resizeObserver.disconnect(); stopThemeWatch();
       events.forEach(([el, name, fn, options]) => el.removeEventListener(name, fn, options)); tableUI.destroy(); codeUI.destroy(); highlighter.destroy();

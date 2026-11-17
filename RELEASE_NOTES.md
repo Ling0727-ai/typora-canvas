@@ -14,6 +14,8 @@ Mixed lists accept two-space child indentation across numeric, alphabetic, Roman
 
 Unit regressions cover 576 combinations of marker families and body, quote, nested-quote and Callout containers. Browser regressions reproduce the reported mixed-list examples and verify marker placement, active source, editing and undo.
 
+Entering a list, quote or Callout now exposes the nearby container source together, including its empty items, prefixes and indentation. Leaving the container restores the preview. The editing context uses a viewport-sized radius to keep long lists bounded. The same behavior applies to fallback and native Callout editing.
+
 Windows, macOS and Linux CI validate unit tests, builds, packaged npm installation and Chromium regressions before publication. The same JavaScript payload is used on all three systems; separate native binaries are not needed. Real Typora integration has primarily been tested on Windows 1.14. The upstream plugin framework documents Windows/Linux installation; macOS host installation remains unverified.
 
 Requires an installed and enabled [obgnail/typora_plugin](https://github.com/obgnail/typora_plugin) framework. See the [English README](https://github.com/Ling0727-ai/typora-canvas/blob/main/README.md) or [简体中文说明](https://github.com/Ling0727-ai/typora-canvas/blob/main/README_CN_simplised.md) for configuration and platform details.

@@ -23,7 +23,7 @@ export function scanLists(doc) {
   const metadataEnd = frontMatterEnd(lines);
   const parseLines = metadataEnd > 0
     ? lines.map((text, i) => i <= metadataEnd ? '' : text) : lines;
-  if (!parseLines.some(text => /(?:^|[\t >])(?:[-+*]|\(?\d{1,9}[.)]|\(?[A-Za-z]{1,8}[.)])(?:[\t ]|\r?$)/.test(text))) return null;
+  if (!parseLines.some(text => /^[\t ]*>/.test(text) || /(?:^|[\t >])(?:[-+*]|\(?\d{1,9}[.)]|\(?[A-Za-z]{1,8}[.)])(?:[\t ]|\r?$)/.test(text))) return null;
   const env = {}, tokens = markdown.parse(parseLines.join('\n'), env), lists = [], items = [], quotes = [], metadata = new Array(lines.length);
   const quoteScopes = Array.from({ length: lines.length }, () => []);
   let paragraph = null;

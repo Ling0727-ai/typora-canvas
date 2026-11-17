@@ -68,6 +68,17 @@ export function inputDiff(before, after) {
   return { from, to: oldEnd, text: after.slice(from, newEnd) };
 }
 
+// Expose a coherent part of the current container while editing its structure.
+// A viewport-sized radius bounds the work even for a document-length list.
+export function editingSourceRange(rows, line, radius) {
+  const row = rows[line];
+  const containers = [row?.list?.groups[0], row?.quoteScopes?.[0], row?.callouts?.[0]].filter(Boolean);
+  if (!containers.length) return null;
+  const start = Math.min(...containers.map(group => group.start));
+  const end = Math.max(...containers.map(group => group.end));
+  return { start: Math.max(start, line - radius), end: Math.min(end, line + radius) };
+}
+
 export function classifyLines(doc, { customCallouts = true, parseImage } = {}) {
   const scan = scanLists(doc);
   const projectedDoc = scan ? { lines: doc.lines, line: number => ({ text: scan.projections[number - 1].text }) } : doc;

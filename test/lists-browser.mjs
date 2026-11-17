@@ -50,6 +50,38 @@ export async function testMixedListContainers(page) {
   }
 }
 
+export async function testEditingContext(page) {
+  const cases = [
+    { source: '- Parent\n  - Child\n  - ', line: 2 },
+    { source: '> First\n> Second\n>', line: 2 },
+    { source: '> [!note] 1\n> - 1\n>   - 1\n>   - 1\n>   - ', line: 4 },
+  ];
+  for (const item of cases) for (const native of [false, true]) {
+    await page.evaluate(({ source, native }) => {
+      const write = document.querySelector('#write');
+      const theme = window.module.exports.readCanvasTheme({ write, content: document.querySelector('#content') });
+      const nativeCallouts = native ? window.module.exports.createNativeCalloutRenderer({ write, plugin: window.calloutTestPlugin }) : null;
+      window.pure = window.module.exports.mountCanvasEditor({ markdown: source + '\n\nAfter', theme, nativeCallouts });
+    }, { source: item.source, native });
+    await page.keyboard.press('Control+Home');
+    for (let i = 0; i < item.line; i++) await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('End');
+    await page.waitForFunction(count => window.pure.getStats().sourceLines >= count, item.line + 1);
+    const selected = await page.evaluate(() => ({ text: window.pure.host.shadowRoot.querySelector('textarea').value,
+      selection: window.pure.getStats().selection }));
+    assert.equal(selected.text, item.source.split('\n')[item.line]);
+    assert.equal(selected.selection.head, item.source.length);
+    await page.keyboard.insertText(' edit');
+    assert.equal(await page.evaluate(() => window.pure.getText()), item.source + ' edit\n\nAfter');
+    await page.keyboard.press('Control+z');
+    assert.equal(await page.evaluate(() => window.pure.getText()), item.source + '\n\nAfter');
+    await page.keyboard.press('Control+End');
+    await page.waitForFunction(() => window.pure.getStats().sourceLines === 1);
+    if (native && item.source.includes('[!note]')) await page.waitForFunction(() => window.pure.getStats().nativeCallouts.drawnSlices > 0);
+    await page.evaluate(() => window.pure.destroy());
+  }
+}
+
 export async function testLists(page) {
   await page.setViewportSize({ width: 1050, height: 1000 });
   await page.addStyleTag({ content: `body.list-test #write{font:18px/28px Arial;color:#222;padding:0}

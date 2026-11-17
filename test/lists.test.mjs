@@ -81,6 +81,22 @@ test('quoted list markers stay inside the quote while list-contained quotes stay
   assert.ok(marker.x + marker.width < value.quoteBorders[0].x);
 });
 
+test('an active empty nested item in a Callout retains quote, indentation and marker source', () => {
+  const source = '> [!note] 1\n> - 1\n>   - 1\n>   - 1\n>   - ';
+  const rows = classify(source), text = source.split('\n').at(-1), row = rows.at(-1);
+  assert.equal(row.list.depth, 1);
+  for (let cursor = 0; cursor <= text.length; cursor++) {
+    const value = draw(text, row, { width: 500, raw: true, cursor });
+    const pieces = value.lines.flatMap(line => line.pieces);
+    assert.equal(pieces.map(piece => piece.text).join(''), text);
+    assert.ok(pieces.every(piece => !piece.listMarker));
+    const caret = caretSource(value, cursor);
+    assert.equal(hitSource(value, caret.x, caret.y, text.length), cursor);
+  }
+  const preview = draw(text, row, { width: 500, raw: false });
+  assert.ok(preview.lines.flatMap(line => line.pieces).some(piece => piece.listMarker));
+});
+
 test('bullet variants and ordered lists use actual block scopes, starts, and sibling counters', () => {
   const source = '- One\n- Two\n\n+ Three\n+ Four\n\n7. Seven\n1. Eight\n1. Nine\n\nText\n\n3) Three\n4) Four';
   const rows = classify(source);
