@@ -217,7 +217,7 @@ export function mountCanvasEditor({ markdown = '', parent = document.body, embed
   }
   function refreshCodeSelection() {
     const i = model.doc.lineAt(model.head).number - 1, row = rows[i];
-    codeSelection = row?.codeStart === undefined ? null : { start: row.codeStart, end: row.codeEnd,
+    codeSelection = row?.codeStart === undefined || row.frontMatter ? null : { start: row.codeStart, end: row.codeEnd,
       language: rows[row.codeStart].language, header: i === row.codeStart };
   }
   function chooseLanguage(language, advance = false) {
@@ -498,7 +498,7 @@ export function mountCanvasEditor({ markdown = '', parent = document.body, embed
     errorMessage = '';
     if (!change || change.addedLines || change.first !== change.last || rows[change.first]?.calloutHeader ||
         rows[change.first]?.list && (change.from === undefined || change.from <= model.doc.line(change.first + 1).from + (rows[change.first].sourceOffset || 0) + rows[change.first].list.contentFrom) ||
-        ['math', 'math-tail', 'code-fence'].includes(rows[change.first]?.type) || /[\n$`~|>\[\]]/.test(change.inserted + change.deleted) ||
+        rows[change.first]?.frontMatter || ['math', 'math-tail', 'code-fence'].includes(rows[change.first]?.type) || /[\n$`~|>\[\]]/.test(change.inserted + change.deleted) ||
         /^\s*[| :\-]+$/.test(model.doc.line(change.first + 1).text)) rebuild();
     else {
       const i = change.first, old = rows[i];
@@ -597,7 +597,20 @@ export function mountCanvasEditor({ markdown = '', parent = document.body, embed
         }
         continue;
       }
-      if (row.type === 'code' || row.type === 'code-fence') {
+      if (row.frontMatter) {
+        const style = typography.frontMatter || codeStyle;
+        const top = (value.documentTop || 0) + (row.codeHeader ? style.marginTop || 0 : 0);
+        const blockHeight = Math.max(0, value.height - top - (row.codeFooter ? style.marginBottom || 0 : 0));
+        ctx.fillStyle = style.background || '#8997b318';
+        ctx.fillRect(left, y + top, contentWidth, blockHeight);
+        if (style.borderWidth) {
+          ctx.fillStyle = style.borderColor;
+          ctx.fillRect(left, y + top, style.borderWidth, blockHeight);
+          ctx.fillRect(left + contentWidth - style.borderWidth, y + top, style.borderWidth, blockHeight);
+          if (row.codeHeader || row.codeFooter) ctx.fillRect(left,
+            y + top + (row.codeFooter ? blockHeight - style.borderWidth : 0), contentWidth, style.borderWidth);
+        }
+      } else if (row.type === 'code' || row.type === 'code-fence') {
         const inset = value.inset || 0, top = value.documentTop || 0;
         ctx.fillStyle = codeStyle.background || '#8997b318'; ctx.fillRect(left + inset - 8, y + top, contentWidth - inset + 16, value.height - top);
       }

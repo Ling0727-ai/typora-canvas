@@ -1,7 +1,9 @@
 import { parseImageSource } from './images.js';
+import { frontMatterEnd } from './front-matter.js';
 
 export function classifyBlocks(contexts, { parseImage = parseImageSource } = {}) {
   const rows = [], codes = [];
+  const metadataEnd = frontMatterEnd(contexts.map(context => context.content));
   let code = null, math = null;
   const sameScope = (block, context) => (!block.group || context.callouts.some(g => g.id === block.group)) &&
     (block.listItem === undefined || context.listScopes?.includes(block.listItem));
@@ -12,6 +14,27 @@ export function classifyBlocks(contexts, { parseImage = parseImageSource } = {})
   }
   for (let i = 0; i < contexts.length; i++) {
     const context = contexts[i], text = context.content.replace(/\r$/, '');
+    // Typora treats a leading YAML front matter block as document metadata,
+    // not as a horizontal rule followed by Markdown. Keep the source lines
+    // intact while giving the renderer the same code block semantics used for
+    // fenced YAML, including language highlighting and theme styling.
+    const frontMatterOpen = i === 0 && metadataEnd > 0;
+    if (!code && frontMatterOpen) {
+      const languageFrom = context.sourceOffset + text.indexOf('---') + 3;
+      code = { start: i, end: i, marker: '---', language: 'yaml', languageFrom,
+        group: context.callouts.at(-1)?.id, listItem: context.listScopes?.at(-1), frontMatter: true };
+      rows.push({ type: 'code-fence', level: 0, revision: 0, ...context,
+        codeHeader: true, codeStart: i, language: 'yaml', languageFrom, frontMatter: true });
+      continue;
+    }
+    if (code?.frontMatter) {
+      const row = { type: 'code', level: 0, revision: 0, ...context, codeStart: code.start, language: 'yaml', frontMatter: true };
+      if (i === metadataEnd) {
+        Object.assign(row, { type: 'code-fence', codeFooter: true });
+        rows.push(row); finishCode(i); continue;
+      }
+      rows.push(row); continue;
+    }
     if (code && !sameScope(code, context)) finishCode(i - 1);
     if (math && !sameScope(math, context)) math = null;
     const row = { type: 'paragraph', level: 0, revision: 0, ...context };

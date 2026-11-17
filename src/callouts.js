@@ -1,4 +1,5 @@
 import defaults from './callout-defaults.json' with { type: 'json' };
+import { frontMatterEnd } from './front-matter.js';
 
 export function defaultCalloutTheme(dark = false) {
   return { customEnabled: true, hoverPreview: true, types: Object.fromEntries(Object.entries(defaults.types).map(([type, spec]) => [type, {
@@ -68,8 +69,13 @@ function quotePrefix(text) {
 
 export function calloutContexts(doc, { customEnabled = true, listScopes = [] } = {}) {
   const contexts = [], groups = [], stack = [];
+  const metadataEnd = frontMatterEnd(Array.from({ length: doc.lines }, (_, i) => doc.line(i + 1).text));
   let fence = null;
   for (let i = 0; i < doc.lines; i++) {
+    if (i <= metadataEnd) {
+      contexts.push({ sourceLine: i, sourceOffset: 0, content: doc.line(i + 1).text, callouts: [], calloutHeader: null });
+      continue;
+    }
     const original = doc.line(i + 1).text, prefix = quotePrefix(original);
     const scopes = listScopes[i] || [];
     if (fence && (prefix.depth < fence.depth || fence.listScope !== undefined && !scopes.includes(fence.listScope))) fence = null;

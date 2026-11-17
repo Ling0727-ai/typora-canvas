@@ -28,7 +28,8 @@ export function metrics(block) {
 export function estimateHeight(block, width) {
   if (block.type === 'rule') return 30;
   const m = metrics(block);
-  const available = Math.max(60, width - (block.indent || 0) * 20 - (block.quote ? 20 : 0) - 24);
+  const listInset = block.indent ? (block.indent - 1) * 24 + (block.marker ? 0 : 40) : 0;
+  const available = Math.max(60, width - listInset - (block.quote ? 20 : 0) - 24);
   const chars = Math.max(1, Math.floor(available / m.size));
   const text = block.type === 'table' ? block.cells.map(c => c.map(r => r.text).join('')).sort((a,b) => b.length-a.length)[0] || '' : block.text;
   const lineWidth = block.type === 'table' ? Math.max(1, chars / Math.max(1, block.cells.length)) : chars;
@@ -39,13 +40,21 @@ export function estimateHeight(block, width) {
 export function layoutBlock(ctx, block, width, measureCache) {
   if (block.type === 'rule') return { height: 30, lines: [] };
   const m = metrics(block);
-  const indent = Math.min((block.indent || 0) * 20 + (block.quote ? 20 : 0), width / 3);
+  const listInset = block.indent ? (block.indent - 1) * 24 + (block.marker && !block.continuation ? 0 : 40) : 0;
+  const indent = Math.min(listInset + (block.quote ? 20 : 0), width / 3);
   const inset = block.type === 'code' ? 12 : 0;
   const available = Math.max(24, width - indent - inset * 2);
-  const wrap = (runs, maxWidth, offset = 0) => {
+  const wrap = (runs, maxWidth, offset = 0, marker = '') => {
     const lines = [];
-    let pieces = [], x = 0;
-    const flush = () => { lines.push(pieces); pieces = []; x = 0; };
+    let markerWidth = 0, markerFont = '';
+    if (marker) {
+      markerFont = `400 ${m.size}px ${FONT}`;
+      ctx.font = markerFont; markerWidth = ctx.measureText(marker).width;
+    }
+    const hanging = marker ? Math.max(markerWidth + m.size * .45, m.size * 2.35) : 0;
+    let pieces = [], x = hanging;
+    if (marker) pieces.push({ text: marker, x: offset, width: markerWidth, font: markerFont, listMarker: true });
+    const flush = () => { lines.push(pieces); pieces = []; x = hanging; };
     const place = (text, run, font, measured) => {
       if (x && x + measured > maxWidth) flush();
       pieces.push({ text, x: offset + x, width: measured, font, link: run.link, code: run.code, strike: run.strike });
@@ -80,6 +89,6 @@ export function layoutBlock(ctx, block, width, measureCache) {
     const count = Math.max(1, ...cells.map(c => c.length));
     return { ...m, indent, cellWidth, cells, height: m.top + m.bottom + count * m.lineHeight };
   }
-  const lines = wrap(block.runs, available, indent + inset);
+  const lines = wrap(block.runs, available, indent + inset, block.marker && !block.continuation ? block.marker : '');
   return { ...m, indent, lines, height: m.top + m.bottom + lines.length * m.lineHeight };
 }

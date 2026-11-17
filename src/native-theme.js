@@ -80,9 +80,20 @@ export function readNativeStyles(write) {
       tokenColors[token] = getComputedStyle(span).color; span.remove();
     }
     const root = getComputedStyle(write);
+    const metadata = append('pre'); metadata.className = 'md-meta-block';
+    metadata.innerHTML = code.innerHTML;
+    const metadataLine = metadata.querySelector('.CodeMirror-line'), metadataCM = metadata.querySelector('.CodeMirror');
+    const metadataStyle = getComputedStyle(metadata);
+    const frontMatter = { ...textStyle(metadataLine),
+      fontFamily: getComputedStyle(metadataCM).fontFamily || codeStyle.fontFamily,
+      background: firstColor([metadataLine, metadataCM, metadata], 'transparent'),
+      paddingLeft: px(metadataStyle.paddingLeft, 16), paddingRight: px(metadataStyle.paddingRight, 16),
+      paddingTop: px(metadataStyle.paddingTop, 12), paddingBottom: px(metadataStyle.paddingBottom, 12),
+      marginTop: px(metadataStyle.marginTop), marginBottom: px(metadataStyle.marginBottom),
+      borderWidth: px(metadataStyle.borderTopWidth), borderColor: metadataStyle.borderTopColor };
     return { container: { maxWidth: px(root.maxWidth, 948), paddingTop: px(root.paddingTop), paddingBottom: px(root.paddingBottom, 48),
       paddingLeft: px(root.paddingLeft, 24), paddingRight: px(root.paddingRight, 24) },
-      typography: { paragraph: { ...textStyle(paragraph), inline }, blank, headings, inline, lists,
+      typography: { paragraph: { ...textStyle(paragraph), inline }, blank, headings, inline, lists, frontMatter,
         tableHeader: { ...textStyle(th), inline: inlineStyles(th) }, tableCell: { ...textStyle(odd), inline: inlineStyles(odd) },
         rule: { color: px(rule.borderTopWidth) ? rule.borderTopColor : rule.color,
           width: px(rule.borderTopWidth, 1), marginTop: px(rule.marginTop, 16), marginBottom: px(rule.marginBottom, 16) } },

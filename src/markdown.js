@@ -1,4 +1,5 @@
 import MarkdownIt from 'markdown-it';
+import { frontMatterEnd } from './front-matter.js';
 
 // Never run raw HTML, fetch resources, or evaluate fenced code from a document.
 const parser = new MarkdownIt({ html: false, linkify: false, typographer: false });
@@ -33,7 +34,8 @@ function appendBounded(blocks, block) {
   let runs = [], length = 0, continuation = false;
   const flush = () => {
     if (!runs.length) return;
-    blocks.push({ ...block, runs, continuation, text: runs.map(r => r.text).join('') });
+    blocks.push({ ...block, marker: continuation ? '' : block.marker || '', runs, continuation,
+      text: `${continuation ? '' : block.marker || ''}${runs.map(r => r.text).join('')}` });
     runs = []; length = 0; continuation = true;
   };
   for (const run of block.runs) {
@@ -49,7 +51,14 @@ function appendBounded(blocks, block) {
 }
 
 export function parseMarkdown(markdown) {
-  const tokens = parser.parse(markdown, {});
+  // Markdown front matter is not part of CommonMark. Present it like a YAML
+  // code block in the reader while keeping its line count and source offsets.
+  const sourceLines = markdown.split('\n');
+  const metadataEnd = frontMatterEnd(sourceLines);
+  const body = metadataEnd > 0 ? sourceLines.map((line, i) => i <= metadataEnd ? '' : line) : sourceLines;
+  const tokens = parser.parse(body.join('\n'), {});
+  if (metadataEnd > 0) tokens.unshift({ type: 'code_block', info: 'yaml', map: [0, metadataEnd + 1],
+    content: sourceLines.slice(1, metadataEnd).join('\n') + '\n' });
   const blocks = [];
   const lists = [];
   let quote = 0, itemPrefix = '', heading = 0, inTable = false, tableHeader = false;
@@ -58,12 +67,12 @@ export function parseMarkdown(markdown) {
     const line = token.map?.[0] ?? 0;
     if (token.type === 'blockquote_open') quote++;
     else if (token.type === 'blockquote_close') quote--;
-    else if (token.type === 'bullet_list_open') lists.push({ ordered: false });
+    else if (token.type === 'bullet_list_open') lists.push({ ordered: false, depth: lists.length });
     else if (token.type === 'ordered_list_open') lists.push({ ordered: true, next: Number(token.attrGet('start') || 1) });
     else if (token.type.endsWith('_list_close')) lists.pop();
     else if (token.type === 'list_item_open') {
       const list = lists.at(-1);
-      itemPrefix = list?.ordered ? `${list.next++}. ` : '• ';
+      itemPrefix = list?.ordered ? `${list.next++}. ` : `${['•', '◦', '▪'][(list?.depth || 0) % 3]} `;
     } else if (token.type === 'list_item_close') itemPrefix = '';
     else if (token.type === 'heading_open') heading = Number(token.tag.slice(1));
     else if (token.type === 'heading_close') heading = 0;
@@ -79,9 +88,8 @@ export function parseMarkdown(markdown) {
       const runs = inlineRuns(token.children);
       if (inTable && row) row.cells.push(runs);
       else {
-        if (itemPrefix) runs.unshift({ text: itemPrefix });
         appendBounded(blocks, { type: heading ? 'heading' : 'paragraph', level: heading,
-          quote, indent: lists.length, line, runs });
+          quote, indent: lists.length, line, runs, marker: itemPrefix });
         itemPrefix = '';
       }
     } else if (token.type === 'fence' || token.type === 'code_block') {

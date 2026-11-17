@@ -46,6 +46,26 @@ export function sourceRuns(text, row, raw, cursor = -1, selection = null) {
 
 export function layoutSourceLine(ctx, text, row, { width, raw, font = editorFont, size = 17, asset, measure, cursor = -1,
   selection = null, calloutTheme = defaultCalloutTheme(), typography = {}, codeStyle = {}, imageLayout = null }) {
+  if (row.frontMatter) {
+    const style = { ...codeStyle, ...typography.frontMatter };
+    const paddingLeft = style.paddingLeft ?? 16, paddingRight = style.paddingRight ?? 16;
+    const fontSize = style.fontSize || size, lineHeight = style.lineHeight || Math.ceil(fontSize * 1.7);
+    if (row.type === 'code-fence' && !(raw && cursor > 0)) {
+      const height = row.codeHeader ? (style.marginTop || 0) + (style.paddingTop ?? 12)
+        : (style.paddingBottom ?? 12) + (style.marginBottom || 0);
+      return { height: Math.max(.01, height), lines: [], top: 0, lineHeight, fontSize };
+    }
+    const value = layoutSourceLine(ctx, text, { ...row, type: 'code', frontMatter: false }, {
+      width: Math.max(24, width - paddingLeft - paddingRight), raw, font, size, asset, measure, cursor,
+      selection, calloutTheme, typography, codeStyle: style, imageLayout });
+    for (const line of value.lines) {
+      line.top -= value.top;
+      for (const piece of line.pieces) piece.x += paddingLeft;
+    }
+    value.top = 0;
+    value.height = value.lines.reduce((height, line) => height + line.height, 0);
+    return value;
+  }
   const emptyList = row.list?.first && !text.slice(row.list.originalContentFrom).trim() &&
     (cursor >= row.list.originalContentFrom || !row.list.ordered && cursor >= row.list.originalMarkerFrom + 1) &&
     (!selection || selection.from === selection.to);

@@ -1,6 +1,7 @@
 import MarkdownIt from 'markdown-it';
 import listBlock from './list-block.js';
 import { counterText } from './list-syntax.js';
+import { frontMatterEnd } from './front-matter.js';
 export function useCanvasLists(md) { md.block.ruler.at('list', listBlock, { alt: ['paragraph', 'reference', 'blockquote'] }); return md; }
 const markdown = useCanvasLists(new MarkdownIt({ html: false }));
 
@@ -16,8 +17,14 @@ export function projectListLine(text, ranges = [], depth = Infinity) {
 }
 export function scanLists(doc) {
   const lines = Array.from({ length: doc.lines }, (_, i) => doc.line(i + 1).text);
-  if (!lines.some(text => /(?:^|[\t >])(?:[-+*]|\(?\d{1,9}[.)]|\(?[A-Za-z]{1,8}[.)])(?:[\t ]|\r?$)/.test(text))) return null;
-  const env = {}, tokens = markdown.parse(lines.join('\n'), env), lists = [], items = [], metadata = new Array(lines.length);
+  // YAML sequence entries at the top of a Typora document must never be
+  // interpreted as Markdown list items. Replace only the parser input with
+  // blank lines so all token and source line maps remain stable.
+  const metadataEnd = frontMatterEnd(lines);
+  const parseLines = metadataEnd > 0
+    ? lines.map((text, i) => i <= metadataEnd ? '' : text) : lines;
+  if (!parseLines.some(text => /(?:^|[\t >])(?:[-+*]|\(?\d{1,9}[.)]|\(?[A-Za-z]{1,8}[.)])(?:[\t ]|\r?$)/.test(text))) return null;
+  const env = {}, tokens = markdown.parse(parseLines.join('\n'), env), lists = [], items = [], metadata = new Array(lines.length);
   let paragraph = null;
   for (const token of tokens) {
     if (token.type === 'bullet_list_open' || token.type === 'ordered_list_open') {
