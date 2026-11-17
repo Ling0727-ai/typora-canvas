@@ -211,7 +211,10 @@ export default function list (state, startLine, endLine, silent) {
     //
     const oldListIndent = state.listIndent
     state.listIndent = state.blkIndent
-    state.blkIndent = indent
+    // Typora accepts two-space child lists even when an ordered marker
+    // occupies three or more columns. Keep the actual content indentation
+    // for source projections while allowing those children into the parser.
+    state.blkIndent = Math.min(indent, oldSCount + 2)
 
     state.tight = true
     state.tShift[nextLine] = contentStart - state.bMarks[nextLine]

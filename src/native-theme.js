@@ -43,7 +43,7 @@ export function readNativeStyles(write) {
     const blank = { ...textStyle(empty), minHeight: px(getComputedStyle(empty).minHeight) };
     const inline = inlineStyles(paragraph);
     const lists = {};
-    const sampleLists = (parent = null, path = []) => {
+    const sampleLists = (parent = null, path = [], result = lists) => {
       for (const tag of ['ul', 'ol']) {
         const chain = [...path, tag], list = parent ? doc.createElement(tag) : append(tag);
         if (parent) parent.append(list);
@@ -52,15 +52,21 @@ export function readNativeStyles(write) {
         const item = { ...textStyle(li), inline: inlineStyles(li) };
         const p = doc.createElement('p'); p.textContent = 'Text'; li.append(p);
         const paragraphStyle = { ...textStyle(p), inline: inlineStyles(p) }; p.remove();
-        lists[chain.join('/')] = { paddingLeft: px(listStyle.paddingLeft), marginLeft: px(listStyle.marginLeft),
+        result[chain.join('/')] = { paddingLeft: px(listStyle.paddingLeft), marginLeft: px(listStyle.marginLeft),
           marginTop: px(listStyle.marginTop), marginBottom: px(listStyle.marginBottom),
           listStyleType: getComputedStyle(li).listStyleType, item, paragraph: paragraphStyle,
           marker: { color: marker.color, fontFamily: marker.fontFamily, fontSize: px(marker.fontSize, item.fontSize),
             fontWeight: marker.fontWeight, fontStyle: marker.fontStyle } };
-        if (chain.length < 3) sampleLists(li, chain);
+        if (chain.length < 3) sampleLists(li, chain, result);
       }
     };
     sampleLists();
+    const quote = append('blockquote'), quoteStyle = getComputedStyle(quote);
+    const quoteParagraph = doc.createElement('p'); quoteParagraph.textContent = 'Text'; quote.append(quoteParagraph);
+    const quoteLists = {}; sampleLists(quote, [], quoteLists);
+    const quoteTypography = { ...textStyle(quote), background: quoteStyle.backgroundColor,
+      borderWidth: px(quoteStyle.borderLeftWidth), borderColor: quoteStyle.borderLeftColor,
+      paragraph: { ...textStyle(quoteParagraph), inline: inlineStyles(quoteParagraph) }, lists: quoteLists };
     const headings = Array.from({ length: 6 }, (_, i) => {
       const h = append(`h${i + 1}`); h.textContent = 'Heading'; return { ...textStyle(h), inline: inlineStyles(h) };
     });
@@ -93,7 +99,7 @@ export function readNativeStyles(write) {
       borderWidth: px(metadataStyle.borderTopWidth), borderColor: metadataStyle.borderTopColor };
     return { container: { maxWidth: px(root.maxWidth, 948), paddingTop: px(root.paddingTop), paddingBottom: px(root.paddingBottom, 48),
       paddingLeft: px(root.paddingLeft, 24), paddingRight: px(root.paddingRight, 24) },
-      typography: { paragraph: { ...textStyle(paragraph), inline }, blank, headings, inline, lists, frontMatter,
+      typography: { paragraph: { ...textStyle(paragraph), inline }, blank, headings, inline, lists, frontMatter, quote: quoteTypography,
         tableHeader: { ...textStyle(th), inline: inlineStyles(th) }, tableCell: { ...textStyle(odd), inline: inlineStyles(odd) },
         rule: { color: px(rule.borderTopWidth) ? rule.borderTopColor : rule.color,
           width: px(rule.borderTopWidth, 1), marginTop: px(rule.marginTop, 16), marginBottom: px(rule.marginBottom, 16) } },

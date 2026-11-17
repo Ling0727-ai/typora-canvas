@@ -1,5 +1,55 @@
 import assert from 'node:assert/strict';
 
+export async function testMixedListContainers(page) {
+  const sources = ['> - a\n> -', '> 1. 1\n> 2. ', '1. a\n  - a', 'a. 1\n  1. 1',
+    '1. 1\n2. 2\n  1. 1', '> - a\n>   1. b', '- > a\n  > b'];
+  for (let index = 0; index < sources.length; index++) {
+    const source = sources[index] + '\n\nAfter';
+    await page.evaluate(source => {
+      const paragraph = { fontSize: 18, lineHeight: 28, fontFamily: 'Arial', color: '#222', marginTop: 0, marginBottom: 0 };
+      const lists = Object.fromEntries(['ul', 'ol'].map(tag => [tag, { paddingLeft: 40, marginTop: 0, marginBottom: 0,
+        item: paragraph, marker: { color: '#d02040' }, listStyleType: tag === 'ul' ? 'disc' : 'decimal' }]));
+      window.pure = window.module.exports.mountCanvasEditor({ markdown: source, theme: {
+        background: '#fff', color: '#222', typography: { paragraph, lists,
+          quote: { paddingLeft: 18, borderWidth: 3, borderColor: '#2060d0', lists } },
+        container: { maxWidth: 900, paddingLeft: 24, paddingRight: 24, paddingTop: 40, paddingBottom: 24 } } });
+    }, source);
+    await page.keyboard.press('Control+End');
+    await page.waitForFunction(() => {
+      const canvas = window.pure.host.shadowRoot.querySelector('canvas'), rect = window.pure.getLineRect(0);
+      const data = canvas.getContext('2d').getImageData(0, Math.max(0, Math.floor(rect.y)), canvas.width, Math.ceil(rect.height)).data;
+      for (let i = 0; i < data.length; i += 4) if (data[i] > 150 && data[i + 1] < 90 && data[i + 2] < 110) return true;
+      return false;
+    });
+    const columns = await page.evaluate(() => {
+      const canvas = window.pure.host.shadowRoot.querySelector('canvas'), context = canvas.getContext('2d');
+      return [0, 1, 2].filter(i => i < window.pure.getStats().lines - 2).map(i => {
+        const rect = window.pure.getLineRect(i), pixels = context.getImageData(0, Math.floor(rect.y), canvas.width, Math.ceil(rect.height));
+        let marker = Infinity, border = Infinity;
+        for (let n = 0; n < pixels.data.length; n += 4) {
+          const x = (n / 4) % pixels.width, [r, g, b] = pixels.data.slice(n, n + 3);
+          if (r > 150 && g < 90 && b < 110) marker = Math.min(marker, x);
+          if (b > 150 && r < 90 && g < 130) border = Math.min(border, x);
+        }
+        return { marker, border };
+      });
+    });
+    if (source.startsWith('>')) for (const row of columns) assert.ok(row.marker > row.border + 3, JSON.stringify({ source, columns }));
+    if ([2, 3].includes(index)) assert.ok(columns[1].marker > columns[0].marker + 20, JSON.stringify({ source, columns }));
+    if (index === 4) assert.ok(columns[2].marker > columns[1].marker + 20, JSON.stringify({ source, columns }));
+    if (index === 6) assert.ok(columns[0].marker < columns[0].border, JSON.stringify({ source, columns }));
+    await page.screenshot({ path: `test-output/mixed-list-${index}.png` });
+    await page.keyboard.press('Control+Home'); await page.keyboard.press('ArrowDown'); await page.keyboard.press('End');
+    const text = await page.evaluate(() => window.pure.host.shadowRoot.querySelector('textarea').value);
+    assert.equal(text, source.split('\n')[1], source);
+    await page.keyboard.insertText(' edited');
+    assert.equal(await page.evaluate(() => window.pure.getText()), source.split('\n').map((line, i) => i === 1 ? line + ' edited' : line).join('\n'));
+    await page.keyboard.press('Control+z');
+    assert.equal(await page.evaluate(() => window.pure.getText()), source);
+    await page.evaluate(() => window.pure.destroy());
+  }
+}
+
 export async function testLists(page) {
   await page.setViewportSize({ width: 1050, height: 1000 });
   await page.addStyleTag({ content: `body.list-test #write{font:18px/28px Arial;color:#222;padding:0}

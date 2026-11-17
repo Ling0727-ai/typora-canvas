@@ -463,6 +463,7 @@ export function mountCanvasEditor({ markdown = '', parent = document.body, embed
         const gap = containerStyle.paddingTop; value.documentTop = gap; value.height += gap; value.top += gap;
         value.lines.forEach(line => { line.top += gap; });
         if (value.rule) value.rule.y += gap;
+        if (value.calloutTitle) value.calloutTitle.y += gap;
       }
       layouts.set(key, value);
     }
@@ -510,7 +511,7 @@ export function mountCanvasEditor({ markdown = '', parent = document.body, embed
         rows[i] = ['code', 'table'].includes(old.type) ? { ...old, listProjection: projection, revision: old.revision + 1 } : {
           ...next, sourceLine: old.sourceLine, sourceOffset: old.sourceOffset, callouts: old.callouts, revision: old.revision + 1,
           paragraphStart: old.paragraphStart, paragraphEnd: old.paragraphEnd, previousBlock: old.previousBlock, emptyParagraph: old.emptyParagraph, list: old.list,
-          listProjection: projection, listRanges: old.listRanges, projectedSourceOffset: old.projectedSourceOffset };
+          listProjection: projection, listRanges: old.listRanges, projectedSourceOffset: old.projectedSourceOffset, quoteScopes: old.quoteScopes };
         heights.update(i, estimate(i, true));
       }
     }
@@ -615,10 +616,22 @@ export function mountCanvasEditor({ markdown = '', parent = document.body, embed
         ctx.fillStyle = codeStyle.background || '#8997b318'; ctx.fillRect(left + inset - 8, y + top, contentWidth - inset + 16, value.height - top);
       }
       if (value.rule) { ctx.fillStyle = value.rule.color; ctx.fillRect(left + (value.inset || 0), y + value.rule.y, contentWidth - (value.inset || 0), Math.max(1, value.rule.width)); }
-      if (row.type === 'quote' && !row.callouts.length) { ctx.fillStyle = '#7393bd'; ctx.fillRect(left + (value.listIndent || 0) - 10, y, 3, value.height); }
+      const documentTop = value.documentTop || 0;
+      if (row.type === 'quote' && !row.callouts.length && !row.list && !value.quoteBorders) {
+        ctx.fillStyle = '#7393bd';
+        ctx.fillRect(left + (value.listIndent || 0) - 10, y + documentTop, 3, Math.max(0, value.height - documentTop));
+      }
+      for (const border of value.quoteBorders || []) {
+        const top = y + documentTop + border.y;
+        ctx.fillStyle = border.background || 'transparent';
+        ctx.fillRect(left + border.x, top, contentWidth - border.x, border.height);
+        ctx.fillStyle = border.color || '#7393bd';
+        ctx.fillRect(left + border.x, top, border.width, border.height);
+      }
       let calloutX = row.callouts[0]?.listDepth ? listInset(rows[row.callouts[0].start].list, typography, fontSize, row.callouts[0].listDepth) : 0;
       for (const group of row.callouts) {
-        const spec = calloutSpec(calloutTheme, group.type), topGap = group.start === i ? value.calloutTopGap || 0 : 0;
+        const spec = calloutSpec(calloutTheme, group.type);
+        const topGap = documentTop + (group.start === i ? value.calloutTopGap || 0 : 0);
         const bottomGap = group.end === i ? value.calloutBottomGap || 0 : 0;
         if (spec.background && !/^(transparent|rgba\(0, 0, 0, 0\))$/.test(spec.background)) {
           ctx.fillStyle = spec.background; ctx.fillRect(left + calloutX, y + topGap, contentWidth - calloutX, value.height - topGap - bottomGap);

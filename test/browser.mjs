@@ -10,11 +10,11 @@ import { testFormulaIsolation } from './formulas-browser.mjs';
 import { testDisplayMathSpacing } from './math-spacing-browser.mjs';
 import { testNavigation } from './navigation-browser.mjs';
 import { testInlineImagesAndCaret } from './inline-images-browser.mjs';
-import { testSpacingAndQuoteEditing } from './spacing-browser.mjs';
+import { testSpacingAndQuoteEditing, testFirstLineBlockSpacing } from './spacing-browser.mjs';
 import { testQuoteEnter } from './quote-enter-browser.mjs';
 import { testTableArrows } from './table-arrows-browser.mjs';
 import { usePlatformShortcuts } from './keyboard.mjs';
-import { testLists } from './lists-browser.mjs';
+import { testLists, testMixedListContainers } from './lists-browser.mjs';
 
 const server = spawn(process.execPath, ['scripts/serve.mjs'], { stdio: 'pipe', env: { ...process.env, PORT: '4174' } });
 let browser, page;
@@ -259,9 +259,11 @@ try {
   await testNavigation(page);
   await testInlineImagesAndCaret(page);
   await testSpacingAndQuoteEditing(page);
+  await testFirstLineBlockSpacing(page);
   await testQuoteEnter(page);
   await testTableArrows(page);
   await testLists(page);
+  await testMixedListContainers(page);
   assert.deepEqual(errors, []);
   console.log(JSON.stringify({ passed: true, initial, searched, resized, hybridStats, pureStats, bigAfter }, null, 2));
 } catch (error) {

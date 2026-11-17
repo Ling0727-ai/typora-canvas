@@ -8,6 +8,79 @@ const options = { width: 140, raw: false, size: 18, asset: () => ({ image: {}, w
   measure: (_, text) => [...text].length * 10 };
 const draw = (source, row, opts = {}) => layoutSourceLine({ font: '' }, source, row, { ...options, ...opts });
 
+test('two-space children nest under ordered markers and preserve their source projections', () => {
+  for (const source of ['1. a\n  - a', '> 1. a\n>   - a', '10. a\n  - a', '(1) a\n  - a']) {
+    const rows = classify(source);
+    assert.deepEqual(rows.map(row => row.list.depth), [0, 1], source);
+    const values = source.split('\n').map((text, i) => draw(text, rows[i], { width: 500 }));
+    const body = values.map(value => value.lines.flatMap(line => line.pieces).find(piece => !piece.listMarker && piece.text.trim()));
+    assert.ok(body[1].x > body[0].x + 20, source);
+    for (let i = 0; i < 2; i++) {
+      const text = source.split('\n')[i];
+      for (const piece of values[i].lines.flatMap(line => line.pieces).filter(piece => !piece.listMarker)) {
+        assert.equal(text.slice(piece.from, piece.to), piece.text, source);
+      }
+    }
+  }
+});
+
+test('a two-space ordered child moves both marker and body and starts its own counter', () => {
+  const source = '1. 1\n2. 2\n  1. 1', rows = classify(source);
+  assert.deepEqual(rows.map(row => row.list.depth), [0, 0, 1]);
+  assert.deepEqual(rows.map(row => row.list.number), [1, 2, 1]);
+  const values = source.split('\n').map((text, i) => draw(text, rows[i], { width: 500 }));
+  const pieces = values.map(value => value.lines.flatMap(line => line.pieces));
+  const markers = pieces.map(line => line.find(piece => piece.listMarker));
+  const bodies = pieces.map(line => line.find(piece => !piece.listMarker));
+  assert.equal(markers[2].text, '1.');
+  assert.equal(markers[0].x, markers[1].x);
+  assert.ok(markers[2].x > markers[1].x + 20);
+  assert.equal(bodies[2].x - bodies[1].x, markers[2].x - markers[1].x);
+});
+
+test('all supported marker families mix across three levels in body, quotes and Callouts', () => {
+  const markers = ['-', '+', '*', '1.', '1)', '(1)', 'a.', 'A.', 'i.', 'I.', '(a)', '(I)'];
+  for (const outer of markers) for (const inner of markers) for (const wrapper of ['', '> ', '> > ', 'callout']) {
+    const prefix = wrapper === 'callout' ? '> ' : wrapper;
+    const source = (wrapper === 'callout' ? '> [!note] Title\n' : '') +
+      `${prefix}${outer} Parent\n${prefix}  ${inner} Child\n${prefix}    - Deep\n${prefix}  ${inner} Next\n${prefix}${outer} Last`;
+    const rows = classify(source).filter(row => row.list);
+    assert.deepEqual(rows.map(row => row.list.depth), [0, 1, 2, 1, 0], source);
+    const values = rows.map(row => draw(source.split('\n')[row.sourceLine], row, { width: 900 }));
+    const bodies = values.map(value => value.lines.flatMap(line => line.pieces).find(piece => piece.text.trim() && !piece.listMarker));
+    assert.ok(bodies[1].x > bodies[0].x + 15, source);
+    assert.ok(bodies[2].x > bodies[1].x + 15, source);
+    assert.equal(bodies[3].x, bodies[1].x, source);
+    assert.equal(bodies[4].x, bodies[0].x, source);
+  }
+});
+
+test('quoted list markers stay inside the quote while list-contained quotes stay inside the item', () => {
+  const typography = { quote: { paddingLeft: 18, borderWidth: 3, borderColor: '#123' },
+    lists: { ul: { paddingLeft: 40, item: {} }, ol: { paddingLeft: 40, item: {} } } };
+  for (const source of ['> - a\n> -', '> 1. 1\n> 2. ', '> - a\n>   - b']) {
+    const rows = classify(source);
+    for (let i = 0; i < rows.length; i++) {
+      const text = source.split('\n')[i], value = draw(text, rows[i], { width: 500, typography });
+      const marker = value.lines.flatMap(line => line.pieces).find(piece => piece.listMarker);
+      assert.equal(value.quoteBorders[0].x, 0, source);
+      assert.ok(marker.x > value.quoteBorders[0].x + value.quoteBorders[0].width, source);
+      const active = draw(text, rows[i], { width: 500, raw: true, cursor: text.length, typography });
+      const pieces = active.lines.flatMap(line => line.pieces);
+      assert.equal(pieces.map(piece => piece.text).join(''), text);
+      assert.ok(pieces.every(piece => !piece.listMarker));
+      assert.equal(active.quoteBorders, undefined);
+      for (let cursor = 0; cursor <= text.length; cursor++) {
+        const caret = caretSource(active, cursor);
+        assert.equal(hitSource(active, caret.x, caret.y, text.length), cursor);
+      }
+    }
+  }
+  const source = '- > a', row = classify(source)[0], value = draw(source, row, { width: 500, typography });
+  const marker = value.lines.flatMap(line => line.pieces).find(piece => piece.listMarker);
+  assert.ok(marker.x + marker.width < value.quoteBorders[0].x);
+});
+
 test('bullet variants and ordered lists use actual block scopes, starts, and sibling counters', () => {
   const source = '- One\n- Two\n\n+ Three\n+ Four\n\n7. Seven\n1. Eight\n1. Nine\n\nText\n\n3) Three\n4) Four';
   const rows = classify(source);

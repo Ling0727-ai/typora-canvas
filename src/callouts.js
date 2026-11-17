@@ -57,7 +57,7 @@ export function readCalloutTheme({ write, config = {} }) {
   return theme;
 }
 
-function quotePrefix(text) {
+export function quotePrefix(text) {
   let offset = 0; const offsets = [];
   while (true) {
     const match = /^[\t ]*>[\t ]?/.exec(text.slice(offset));

@@ -14,20 +14,25 @@ function apply(source, position = source.length, head = position) {
 const layout = (text, row, overrides = {}) => layoutSourceLine({ font: '' }, text, row, { width: 500,
   size: 18, raw: false, asset: () => null, measure: (_, value) => [...value].length * 10, ...overrides });
 
-test('bare bullet markers each render a dot, including the active empty item with a reachable caret', () => {
+test('empty bullet items preview a dot and expose the exact marker during editing', () => {
   const source = '-\n*', rows = classifyLines(new CanvasDocument(source).doc);
   for (let i = 0; i < 2; i++) {
     const text = source.split('\n')[i];
     assert.ok(rows[i].list?.first);
-    for (const raw of [false, true]) {
-      const value = layout(text, rows[i], { raw, cursor: text.length });
+    {
+      const value = layout(text, rows[i], { raw: false, cursor: text.length });
       assert.equal(value.lines[0].pieces.find(p => p.listMarker)?.text, '•');
       assert.equal(value.lines[0].pieces.some(p => ['-', '*'].includes(p.text)), false);
       const caret = caretSource(value, text.length);
       assert.ok(caret.x >= 36); assert.equal(hitSource(value, caret.x, caret.y, text.length), text.length);
     }
-    const raw = layout(text, rows[i], { raw: true, cursor: 0 });
-    assert.equal(raw.lines[0].pieces[0].text, text);
+    for (let cursor = 0; cursor <= text.length; cursor++) {
+      const raw = layout(text, rows[i], { raw: true, cursor });
+      assert.equal(raw.lines[0].pieces.map(piece => piece.text).join(''), text);
+      assert.ok(raw.lines[0].pieces.every(piece => !piece.listMarker));
+      const caret = caretSource(raw, cursor);
+      assert.equal(hitSource(raw, caret.x, caret.y, text.length), cursor);
+    }
   }
 });
 

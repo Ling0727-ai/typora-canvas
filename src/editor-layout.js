@@ -1,10 +1,10 @@
 const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
 import { tableCells } from './editor-model.js';
-import { defaultCalloutTheme, calloutSpec } from './callouts.js';
+import { defaultCalloutTheme, calloutSpec, quotePrefix } from './callouts.js';
 import { displayMathGeometry } from './math-geometry.js';
 import { inlineSourceRuns } from './inline-source.js';
 import { blankGeometry } from './spacing.js';
-import { listMarker, listStyles } from './lists.js';
+import { listMarker, listStyles, listInset } from './lists.js';
 export const editorFont = '"Segoe UI", "Microsoft YaHei", sans-serif';
 
 // Inactive lines elide common Markdown markers; the active source line is exact.
@@ -66,10 +66,7 @@ export function layoutSourceLine(ctx, text, row, { width, raw, font = editorFont
     value.height = value.lines.reduce((height, line) => height + line.height, 0);
     return value;
   }
-  const emptyList = row.list?.first && !text.slice(row.list.originalContentFrom).trim() &&
-    (cursor >= row.list.originalContentFrom || !row.list.ordered && cursor >= row.list.originalMarkerFrom + 1) &&
-    (!selection || selection.from === selection.to);
-  if (row.listProjection && (!raw || emptyList)) {
+  if (row.listProjection && !raw) {
     const projection = row.listProjection;
     const callouts = row.callouts.map(g => ({ ...g, titleFrom: g.projectedTitleFrom ?? g.titleFrom }));
     const projected = { ...row, listProjection: null, sourceOffset: row.projectedSourceOffset || 0,
@@ -83,6 +80,32 @@ export function layoutSourceLine(ctx, text, row, { width, raw, font = editorFont
       p.to = p.listMarker ? row.list.originalContentFrom : map(p.to);
     }
     if (value.cells) for (const cell of value.cells) { cell.from = map(cell.from); cell.to = map(cell.to); }
+    return value;
+  }
+  const prefix = quotePrefix(text);
+  if (!raw && !row.quoteWrapped && !row.callouts?.length && row.type === 'quote' && prefix.depth) {
+    const style = typography.quote || { paddingLeft: 16, borderWidth: 3, borderColor: '#7393bd' };
+    const scopes = row.quoteScopes?.length ? row.quoteScopes : Array.from({ length: prefix.depth }, () => ({ listDepth: 0 }));
+    const step = (style.marginLeft || 0) + (style.borderWidth || 0) + (style.paddingLeft || 0);
+    const inset = step * scopes.length;
+    const top = scopes.reduce((sum, scope) => sum + (scope.start === row.sourceLine ? style.marginTop || 0 : 0), 0);
+    const bottom = scopes.reduce((sum, scope) => sum + (scope.end === row.sourceLine ? style.marginBottom || 0 : 0), 0);
+    const value = layoutSourceLine(ctx, text.slice(prefix.offset), { ...row, type: 'paragraph', quoteWrapped: true }, {
+      width: Math.max(24, width - inset), raw: false, font, size, asset, measure, cursor: -1,
+      selection: null, calloutTheme, typography: { ...typography, paragraph: style.paragraph || typography.paragraph }, codeStyle, imageLayout });
+    const markerInset = step * scopes.filter(scope => scope.listDepth < (row.list?.groups.length || 0)).length;
+    for (const line of value.lines) {
+      line.top += top;
+      for (const piece of line.pieces) {
+        piece.x += piece.listMarker ? markerInset : inset;
+        piece.from += prefix.offset; piece.to += prefix.offset;
+      }
+    }
+    value.height += top + bottom; value.top += top;
+    value.quoteBorders = scopes.map((scope, i) => ({
+      x: (row.list ? listInset(row.list, typography, size, scope.listDepth) : 0) + step * i + (style.marginLeft || 0),
+      y: top, height: Math.max(0, value.height - top - bottom), width: style.borderWidth || 0,
+      color: style.borderColor, background: style.background }));
     return value;
   }
   if (row.callouts?.length) {
@@ -126,7 +149,9 @@ export function layoutSourceLine(ctx, text, row, { width, raw, font = editorFont
     const markerStyle = { ...item, ...spec.marker }, markerSize = markerStyle.fontSize || size;
     const markerFont = `${markerStyle.fontStyle || 'normal'} ${markerStyle.fontWeight || '400'} ${markerSize}px ${markerStyle.fontFamily || font}`;
     const markerWidth = measure(markerFont, label), gap = markerSize * .45;
-    const indent = Math.max(markerWidth + gap, styles.reduce((sum, s) => sum + (s.paddingLeft ?? size * 2) + (s.marginLeft || 0) + (s.item?.paddingLeft || 0), 0));
+    // Outside markers occupy the gutter. Their width must not move the
+    // content column when sibling numbers grow (for example i. -> ii.).
+    const indent = styles.reduce((sum, s) => sum + (s.paddingLeft ?? size * 2) + (s.marginLeft || 0) + (s.item?.paddingLeft || 0), 0);
     const top = list.groups.reduce((sum, g, i) => sum + (g.start === row.sourceLine ? styles[i].marginTop || 0 : 0), 0)
       + (list.first ? (item.paddingTop || 0) + (item.marginTop || 0) : 0)
       + (list.loose && list.paragraphStart ? style.marginTop || 0 : 0);

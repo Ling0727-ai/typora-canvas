@@ -24,17 +24,23 @@ export function scanLists(doc) {
   const parseLines = metadataEnd > 0
     ? lines.map((text, i) => i <= metadataEnd ? '' : text) : lines;
   if (!parseLines.some(text => /(?:^|[\t >])(?:[-+*]|\(?\d{1,9}[.)]|\(?[A-Za-z]{1,8}[.)])(?:[\t ]|\r?$)/.test(text))) return null;
-  const env = {}, tokens = markdown.parse(parseLines.join('\n'), env), lists = [], items = [], metadata = new Array(lines.length);
+  const env = {}, tokens = markdown.parse(parseLines.join('\n'), env), lists = [], items = [], quotes = [], metadata = new Array(lines.length);
+  const quoteScopes = Array.from({ length: lines.length }, () => []);
   let paragraph = null;
   for (const token of tokens) {
-    if (token.type === 'bullet_list_open' || token.type === 'ordered_list_open') {
+    if (token.type === 'blockquote_open') {
+      const scope = { start: token.map[0], end: token.map[1] - 1, listDepth: lists.length };
+      quotes.push(scope);
+      for (let i = scope.start; i <= scope.end; i++) quoteScopes[i].push(scope);
+    } else if (token.type === 'blockquote_close') quotes.pop();
+    else if (token.type === 'bullet_list_open' || token.type === 'ordered_list_open') {
       lists.push({ tag: token.tag, marker: token.meta?.marker, next: Number(token.attrGet('start') || 1), start: token.map[0], end: token.map[1] - 1 });
     } else if (token.type === 'bullet_list_close' || token.type === 'ordered_list_close') lists.pop();
     else if (token.type === 'list_item_open' && lists.length) {
       const group = lists.at(-1);
       const item = { start: token.map[0], end: token.map[1] - 1, number: group.next++, groups: [...lists],
         ancestors: [...items.map(item => item.start), token.map[0]],
-        path: lists.map(g => g.tag).join('/'), depth: lists.length - 1, ordered: group.tag === 'ol',
+        path: lists.map(g => g.tag).join('/'), depth: lists.length - 1, ordered: group.tag === 'ol', quoteDepth: quotes.length,
         marker: group.marker, ...token.meta };
       items.push(item);
       for (let i = item.start; i <= item.end; i++) metadata[i] = { ...item, first: i === item.start, contentFrom: i === item.start ? item.contentFrom : 0 };
@@ -47,12 +53,13 @@ export function scanLists(doc) {
     }
   }
   const projections = lines.map((text, i) => projectListLine(text, env.canvasListRemovals?.[i]));
-  return { metadata, projections, removals: env.canvasListRemovals || [], lines };
+  return { metadata, projections, removals: env.canvasListRemovals || [], lines, quoteScopes };
 }
 export function markLists(doc, rows, scan = scanLists(doc)) {
   if (!scan) return;
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i], list = scan.metadata[i];
+    row.quoteScopes = scan.quoteScopes[i];
     if (!list) continue;
     if (row.type === 'blank' && !list.first) continue;
     const projection = scan.projections[i], offset = row.sourceOffset || 0;
@@ -71,7 +78,8 @@ export function markLists(doc, rows, scan = scanLists(doc)) {
 }
 export function listStyles(list, typography, size) {
   const paths = list.path.split('/');
-  return paths.map((tag, i) => typography.lists?.[paths.slice(0, i + 1).join('/')]
+  const sampled = list.quoteDepth ? typography.quote?.lists || typography.lists : typography.lists;
+  return paths.map((tag, i) => sampled?.[paths.slice(0, i + 1).join('/')]
     || typography.lists?.[paths.slice(Math.max(0, i - 2), i + 1).join('/')] || {
       paddingLeft: size * 2, marginLeft: 0, marginTop: 0, marginBottom: 0,
       item: typography.paragraph || {}, marker: {}, listStyleType: tag === 'ol' ? 'decimal' : ['disc', 'circle', 'square'][i % 3] });
