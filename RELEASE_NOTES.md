@@ -6,7 +6,9 @@ Prebuilt Typora Canvas plugin and npm installer. No local compilation is require
 
 The npm CLI provides help, version, backup, install/update and disable (`--uninstall`) commands. Installing the npm package only makes the CLI available; run it explicitly to deploy to Typora.
 
-This release fixes stale native Callout cache entries after structural edits change source-line IDs. Inserting list items and undoing/redoing no longer retain captures for blocks at their previous positions or consume cache budgets with obsolete images. Surviving blocks keep their decoded previews. A deterministic browser regression waits for shifted captures and repeats five undo/redo cycles, checking cache counts, source and rendering; CI failures now include editor statistics for diagnosis. The list rendering, scoped numbering and nested block features from 0.6.13 are retained.
+Version 0.6.15 recognizes leading YAML front matter in the Canvas editor and standalone reader. Metadata keeps its indentation and uses sampled Typora metadata styles. YAML sequences and literal Markdown inside metadata stay within the YAML block, while following nested Markdown lists retain their scopes. BOM and CRLF input are supported. The standalone reader also uses hanging indentation and depth-specific bullet markers for lists.
+
+Linux validation and publication runners use Ubuntu 24.04, which supports the pinned Playwright 1.56.1 browser installer. Release artifact names match the pinned runner. Regression coverage includes the reported aliases/tags metadata, literal Markdown within YAML, incomplete delimiters, source preservation, and metadata layout.
 
 Windows, macOS and Linux CI validate unit tests, builds, packaged npm installation and Chromium regressions before publication. The same JavaScript payload is used on all three systems; separate native binaries are not needed. Real Typora integration has primarily been tested on Windows 1.14. The upstream plugin framework documents Windows/Linux installation; macOS host installation remains unverified.
 
