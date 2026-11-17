@@ -9,7 +9,7 @@ jobs:
     uses: ./.github/workflows/ci.yml
   publish:
     needs: validate
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
@@ -20,7 +20,7 @@ jobs:
         run: node -e 'const p=require("./package.json");if(process.env.RELEASE_TAG!=="v"+p.version)throw new Error("Tag does not match package.json")'
       - uses: actions/download-artifact@v4
         with:
-          name: release-files-ubuntu-latest
+          name: release-files-ubuntu-24.04
           path: dist/release
       - name: Verify release checksums
         working-directory: dist/release
@@ -34,7 +34,7 @@ jobs:
     name: Publish npm (OIDC)
     needs: [validate, publish]
     if: vars.NPM_TRUSTED_PUBLISHING == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: read
@@ -49,7 +49,7 @@ jobs:
         run: npm install --global npm@11.20.0
       - uses: actions/download-artifact@v4
         with:
-          name: release-files-ubuntu-latest
+          name: release-files-ubuntu-24.04
           path: dist/release
       - name: Verify validated package checksums
         working-directory: dist/release
